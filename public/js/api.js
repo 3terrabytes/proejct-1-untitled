@@ -45,6 +45,10 @@ export const api = {
   equip: (itemId) => request(`/api/player/equip/${itemId}`, { method: 'POST' }),
   removeItem: (itemId) => request(`/api/player/inventory/${itemId}`, { method: 'DELETE' }),
 
+  // shop
+  shopBuy: (npcId, item) => request('/api/shop/buy', { method: 'POST', body: { npcId, item } }),
+  shopSell: (itemId) => request('/api/shop/sell', { method: 'POST', body: { itemId } }),
+
   // friends
   friends: () => request('/api/friends'),
   friendRequest: (username) => request('/api/friends/request', { method: 'POST', body: { username } }),

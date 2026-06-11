@@ -1,25 +1,13 @@
 import { Router } from 'express';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Groq from 'groq-sdk';
 import { sql } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { getNpcById } from '../lib/catalog.js';
 
 const router = Router();
 router.use(requireAuth);
 
 const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
-
-// NPC definitions are shared with the frontend — single source of truth.
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const npcs = JSON.parse(
-  readFileSync(path.join(__dirname, '../../public/js/npcs.json'), 'utf8')
-);
-
-function getNpcById(npcId) {
-  return npcs.find((npc) => npc.id === npcId);
-}
 
 // Player message + NPC context → Groq → streamed reply (SSE over POST).
 router.post('/npc', async (req, res) => {

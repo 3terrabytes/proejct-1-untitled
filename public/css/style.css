@@ -203,14 +203,38 @@ html, body {
 #combat-log .taunt { color: #8fdc91; font-style: italic; }
 #combat-log .hit { color: #ffb1b1; }
 #combat-log .info { color: var(--muted); }
-.combat-actions { display: flex; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--panel-edge); }
-.combat-actions button {
-  flex: 1; padding: 10px; border: none; border-radius: 6px;
-  cursor: pointer; font-weight: 700; font-size: 14px;
+.combat-actions {
+  display: flex; gap: 10px; padding: 10px 16px;
+  border-top: 1px solid var(--panel-edge); align-items: stretch;
 }
-#btn-attack { background: var(--hp); color: #fff; }
-#btn-flee { background: var(--panel-edge); color: var(--text); }
-.combat-actions button:disabled { opacity: .45; cursor: default; }
+#combat-moves { display: flex; gap: 8px; flex: 1; }
+.move-btn {
+  position: relative; flex: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 7px 4px 6px; border: 1px solid var(--panel-edge); border-radius: 8px;
+  background: #2a2240; color: var(--text); cursor: pointer;
+}
+.move-btn:hover:not(:disabled) { background: #383058; }
+.move-btn:disabled { opacity: .45; cursor: default; }
+.move-key {
+  position: absolute; top: 3px; left: 5px;
+  font-size: 9px; color: var(--muted); border: 1px solid var(--panel-edge);
+  border-radius: 3px; padding: 0 3px;
+}
+.move-icon { font-size: 16px; }
+.move-name { font-size: 11px; font-weight: 700; }
+.move-desc { font-size: 9px; color: var(--muted); text-align: center; line-height: 1.2; }
+.move-cd {
+  position: absolute; top: -6px; right: -6px;
+  background: var(--hp); color: #fff; border-radius: 999px;
+  min-width: 17px; height: 17px; line-height: 17px; font-size: 10px; font-weight: 700;
+}
+#btn-flee {
+  background: var(--panel-edge); color: var(--text);
+  border: none; border-radius: 8px; padding: 0 16px;
+  cursor: pointer; font-weight: 700; font-size: 13px;
+}
+#btn-flee:disabled { opacity: .45; cursor: default; }
 
 /* ============ MODALS (inventory, friends, buy) ============ */
 .modal-backdrop {
@@ -256,6 +280,30 @@ html, body {
   text-transform: uppercase; color: var(--muted);
 }
 .empty-note { padding: 10px 16px; color: var(--muted); font-size: 13px; }
+
+/* ============ SHOP ============ */
+.shop-tabs {
+  display: flex; gap: 8px; align-items: center;
+  padding: 10px 16px 0;
+}
+.shop-tabs button {
+  padding: 7px 22px; border: 1px solid var(--panel-edge); border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer; font-weight: 700;
+}
+.shop-tabs button.active { background: var(--panel-edge); color: var(--text); }
+.shop-gold { margin-left: auto; color: #ffd76a; font-size: 13px; font-weight: 700; }
+.item-row .shop-buy { background: #4d3c12; color: #ffd76a; font-weight: 700; }
+.item-row .shop-sell { background: #1f4128; color: #9fdca9; font-weight: 700; }
+.item-row button:disabled { opacity: .4; cursor: default; }
+
+.panel-header-actions { display: flex; align-items: center; gap: 8px; }
+.chat-shop {
+  background: var(--accent); color: #1c1505; border: none; border-radius: 6px;
+  padding: 4px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.chat-shop:hover { filter: brightness(1.1); }
+
+#hud-online.offline { color: #ff9b9b; }
 
 /* ============ TOASTS ============ */
 #toasts {

@@ -5,7 +5,11 @@
     "role": "blacksmith",
     "location": "Ashveil Village",
     "personality": "Gruff, honest, proud of his craft. Distrusts magic.",
-    "sells": ["Iron Sword", "Leather Armour", "Iron Shield"],
+    "sells": [
+      "Iron Sword", "Steel Sword", "Leather Armour", "Chainmail",
+      "Iron Shield", "Steel Shield", "Leather Boots", "Iron Helm",
+      "Health Potion", "Greater Potion"
+    ],
     "sprite": "blacksmith",
     "x": 3,
     "y": 5
@@ -29,6 +33,16 @@
     "personality": "Aggressive, stupid, loves gold. Yells threats in broken English.",
     "stats": { "hp": 40, "attack": 8, "defence": 3, "xpReward": 25, "goldDrop": [0, 15] },
     "sprite": "goblin",
-    "spawns": [[22, 6], [25, 12], [21, 15]]
+    "spawnWeight": 0.8
+  },
+  {
+    "id": "goblin_brute",
+    "name": "Goblin Brute",
+    "role": "enemy",
+    "location": "Goblin Caves",
+    "personality": "Hulking, slow-witted bully. Smashes first, grunts later. Proud of being the biggest goblin.",
+    "stats": { "hp": 70, "attack": 11, "defence": 5, "xpReward": 45, "goldDrop": [5, 25] },
+    "sprite": "goblin_brute",
+    "spawnWeight": 0.2
   }
 ]

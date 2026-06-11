@@ -1,0 +1,17 @@
+{
+  "Rusty Sword":    { "type": "weapon", "slot": "mainhand", "stats": { "attack": 2 }, "price": 15 },
+  "Rusty Dagger":   { "type": "weapon", "slot": "mainhand", "stats": { "attack": 3 }, "price": 25 },
+  "Iron Sword":     { "type": "weapon", "slot": "mainhand", "stats": { "attack": 5 }, "price": 60 },
+  "Brute Cleaver":  { "type": "weapon", "slot": "mainhand", "stats": { "attack": 7 }, "price": 140 },
+  "Steel Sword":    { "type": "weapon", "slot": "mainhand", "stats": { "attack": 9 }, "price": 260 },
+  "Cloth Tunic":    { "type": "armour", "slot": "chest", "stats": { "defence": 1 }, "price": 10 },
+  "Leather Armour": { "type": "armour", "slot": "chest", "stats": { "defence": 3 }, "price": 50 },
+  "Chainmail":      { "type": "armour", "slot": "chest", "stats": { "defence": 6 }, "price": 240 },
+  "Iron Shield":    { "type": "armour", "slot": "offhand", "stats": { "defence": 4 }, "price": 80 },
+  "Steel Shield":   { "type": "armour", "slot": "offhand", "stats": { "defence": 7 }, "price": 280 },
+  "Leather Boots":  { "type": "armour", "slot": "feet", "stats": { "defence": 2 }, "price": 45 },
+  "Iron Helm":      { "type": "armour", "slot": "head", "stats": { "defence": 3 }, "price": 90 },
+  "Health Potion":  { "type": "consumable", "slot": null, "stats": { "heal": 30 }, "price": 20 },
+  "Greater Potion": { "type": "consumable", "slot": null, "stats": { "heal": 80 }, "price": 55 },
+  "Goblin Ear":     { "type": "misc", "slot": null, "stats": null, "price": 8 }
+}

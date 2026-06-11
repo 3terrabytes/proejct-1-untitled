@@ -1,7 +1,7 @@
-// HUD, NPC chat panel, inventory/friends modals, toasts.
+// HUD, NPC chat panel, shop, inventory/friends modals, toasts.
 
 import { api, streamNpcReply, clearToken } from './api.js';
-import { catalogEntry } from './items.js';
+import { catalogEntry, sellValue } from './items.js';
 
 // Matches a merchant offer like {"action":"offer","item":"Iron Shield","price":80}
 const OFFER_RE = /\{[^{}]*"action"\s*:\s*"offer"[^{}]*\}/;
@@ -18,6 +18,7 @@ export class Ui {
       name: document.getElementById('hud-name'),
       level: document.getElementById('hud-level'),
       gold: document.getElementById('hud-gold'),
+      online: document.getElementById('hud-online'),
       hpFill: document.getElementById('hp-fill'),
       hpText: document.getElementById('hp-text'),
       xpFill: document.getElementById('xp-fill'),
@@ -29,6 +30,7 @@ export class Ui {
     this.chatPanel = document.getElementById('chat-panel');
     this.chatMessages = document.getElementById('chat-messages');
     this.chatInput = document.getElementById('chat-input');
+    this.chatShopBtn = document.getElementById('chat-shop-btn');
     this.modalRoot = document.getElementById('modal-root');
     this.toasts = document.getElementById('toasts');
 
@@ -37,6 +39,9 @@ export class Ui {
       this.sendChatMessage();
     });
     this.chatPanel.querySelector('.panel-close').addEventListener('click', () => this.closeChat());
+    this.chatShopBtn.addEventListener('click', () => {
+      if (this.chatNpc?.sells) this.openShop(this.chatNpc);
+    });
     document.getElementById('btn-inventory').addEventListener('click', () => this.openInventory());
     document.getElementById('btn-friends').addEventListener('click', () => this.openFriends());
     document.getElementById('btn-logout').addEventListener('click', () => {
@@ -62,6 +67,12 @@ export class Ui {
     const needed = stats.level * 100;
     this.hud.xpFill.style.width = `${Math.min(100, (stats.xp / needed) * 100)}%`;
     this.hud.xpText.textContent = `${stats.xp}/${needed} XP`;
+  }
+
+  updateOnline(connected) {
+    const others = this.game.remotePlayers.size;
+    this.hud.online.textContent = connected ? `🌐 ${others + 1} online` : '🌐 offline';
+    this.hud.online.classList.toggle('offline', !connected);
   }
 
   setZone(name) {
@@ -92,15 +103,15 @@ export class Ui {
     this.lastExchange = null;
     this.memoryContext = null;
     this.chatMessages.innerHTML = '';
-    document.getElementById('chat-npc-name').textContent =
-      `${npc.def.name} — ${npc.def.role}`;
+    document.getElementById('chat-npc-name').textContent = `${npc.name} — ${npc.role}`;
+    this.chatShopBtn.classList.toggle('hidden', !npc.sells);
     this.chatPanel.classList.remove('hidden');
-    this.addChatBubble('npc', `*${npc.def.name} turns to face you*`);
+    this.addChatBubble('npc', `*${npc.name} turns to face you*`);
     this.chatInput.value = '';
     this.chatInput.focus();
 
     try {
-      const { summary } = await api.getMemory(npc.def.id);
+      const { summary } = await api.getMemory(npc.id);
       this.memoryContext = summary;
     } catch { /* memory is optional */ }
   }
@@ -115,7 +126,7 @@ export class Ui {
       const { playerMessage, reply } = this.lastExchange;
       const summary =
         `Last visit the player said "${playerMessage.slice(0, 120)}" and you replied "${reply.slice(0, 200)}".`;
-      api.saveMemory(npc.def.id, summary).catch(() => {});
+      api.saveMemory(npc.id, summary).catch(() => {});
     }
   }
 
@@ -136,17 +147,17 @@ export class Ui {
     this.addChatBubble('player', message);
 
     const bubble = this.addChatBubble('npc', '');
-    bubble.innerHTML = '<span class="cursor">▋</span>';
-    this.streaming = true;
-
     const cursor = document.createElement('span');
     cursor.className = 'cursor';
     cursor.textContent = '▋';
+    bubble.appendChild(cursor);
+    this.streaming = true;
+
     let reply = '';
     try {
       reply = await streamNpcReply(
         {
-          npcId: npc.def.id,
+          npcId: npc.id,
           playerMessage: message,
           playerStats: { level: this.game.stats.level, gold: this.game.stats.gold },
           memoryContext: this.memoryContext
@@ -159,7 +170,7 @@ export class Ui {
         }
       );
     } catch (err) {
-      bubble.textContent = `*${npc.def.name} seems lost in thought* (${err.message})`;
+      bubble.textContent = `*${npc.name} seems lost in thought* (${err.message})`;
       this.streaming = false;
       return;
     }
@@ -201,9 +212,15 @@ export class Ui {
         item_name: offer.item, item_type: 'misc', slot: null, stats: null
       };
       try {
-        await api.addItem({ ...entry, price: offer.price });
+        await api.addItem({
+          item_name: entry.item_name,
+          item_type: entry.item_type,
+          slot: entry.slot,
+          stats: entry.stats,
+          price: offer.price
+        });
         const { stats } = await api.stats();
-        this.game.stats = stats;
+        this.game.stats = { ...stats, hp: this.game.stats.hp }; // keep live local HP
         await this.game.refreshInventory();
         this.updateHud();
         this.toast(`Bought ${entry.item_name} for ${offer.price} gold`, 'good');
@@ -245,6 +262,137 @@ export class Ui {
     this.modalRoot.appendChild(backdrop);
     return { modal, body };
   }
+
+  // ---------- Shop ----------
+
+  async openShop(npc) {
+    const { modal, body } = this.buildModal(`🛒 ${npc.name}'s Shop`);
+
+    const tabs = document.createElement('div');
+    tabs.className = 'shop-tabs';
+    const buyTab = document.createElement('button');
+    buyTab.textContent = 'Buy';
+    buyTab.className = 'active';
+    const sellTab = document.createElement('button');
+    sellTab.textContent = 'Sell';
+    const goldChip = document.createElement('span');
+    goldChip.className = 'shop-gold';
+    tabs.append(buyTab, sellTab, goldChip);
+    modal.insertBefore(tabs, body);
+
+    const setGold = () => { goldChip.textContent = `💰 ${this.game.stats.gold} g`; };
+    setGold();
+
+    const showBuy = () => {
+      buyTab.classList.add('active');
+      sellTab.classList.remove('active');
+      this.renderShopBuy(body, npc, setGold);
+    };
+    const showSell = async () => {
+      sellTab.classList.add('active');
+      buyTab.classList.remove('active');
+      await this.game.refreshInventory();
+      this.renderShopSell(body, setGold);
+    };
+    buyTab.addEventListener('click', showBuy);
+    sellTab.addEventListener('click', showSell);
+    showBuy();
+  }
+
+  renderShopBuy(body, npc, setGold) {
+    body.innerHTML = '';
+    for (const itemName of npc.sells) {
+      const entry = catalogEntry(itemName);
+      if (!entry) continue;
+      const row = document.createElement('div');
+      row.className = 'item-row';
+
+      const info = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 'item-name';
+      name.textContent = entry.item_name;
+      const meta = document.createElement('div');
+      meta.className = 'item-meta';
+      const statText = entry.stats
+        ? Object.entries(entry.stats).map(([k, v]) => `+${v} ${k}`).join(', ')
+        : '';
+      meta.textContent = [entry.item_type, entry.slot, statText].filter(Boolean).join(' · ');
+      info.append(name, meta);
+
+      const buyBtn = document.createElement('button');
+      buyBtn.className = 'shop-buy';
+      buyBtn.textContent = `${entry.price} g`;
+      buyBtn.disabled = this.game.stats.gold < entry.price;
+      buyBtn.addEventListener('click', async () => {
+        buyBtn.disabled = true;
+        try {
+          const { gold } = await api.shopBuy(npc.id, entry.item_name);
+          this.game.stats.gold = gold;
+          await this.game.refreshInventory();
+          this.updateHud();
+          setGold();
+          this.toast(`Bought ${entry.item_name}`, 'good');
+          this.renderShopBuy(body, npc, setGold); // refresh affordability
+        } catch (err) {
+          this.toast(err.message, 'bad');
+          buyBtn.disabled = false;
+        }
+      });
+
+      row.append(info, buyBtn);
+      body.appendChild(row);
+    }
+  }
+
+  renderShopSell(body, setGold) {
+    body.innerHTML = '';
+    const sellable = this.game.items.filter((item) => sellValue(item.item_name) > 0);
+    if (!sellable.length) {
+      body.innerHTML = '<p class="empty-note">Nothing worth selling. Goblins drop trinkets…</p>';
+      return;
+    }
+    for (const item of sellable) {
+      const row = document.createElement('div');
+      row.className = 'item-row';
+
+      const info = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 'item-name';
+      name.textContent = item.item_name;
+      if (item.equipped) {
+        const tag = document.createElement('span');
+        tag.className = 'equipped-tag';
+        tag.textContent = '● equipped';
+        name.appendChild(tag);
+      }
+      info.appendChild(name);
+
+      const value = sellValue(item.item_name);
+      const sellBtn = document.createElement('button');
+      sellBtn.className = 'shop-sell';
+      sellBtn.textContent = `Sell ${value} g`;
+      sellBtn.addEventListener('click', async () => {
+        sellBtn.disabled = true;
+        try {
+          const { gold } = await api.shopSell(item.id);
+          this.game.stats.gold = gold;
+          await this.game.refreshInventory();
+          this.updateHud();
+          setGold();
+          this.toast(`Sold ${item.item_name} for ${value} g`, 'good');
+          this.renderShopSell(body, setGold);
+        } catch (err) {
+          this.toast(err.message, 'bad');
+          sellBtn.disabled = false;
+        }
+      });
+
+      row.append(info, sellBtn);
+      body.appendChild(row);
+    }
+  }
+
+  // ---------- Inventory ----------
 
   async openInventory() {
     const { body } = this.buildModal('🎒 Inventory');
@@ -418,7 +566,8 @@ export class Ui {
     for (const friend of data.friends) {
       const row = document.createElement('div');
       row.className = 'friend-row';
-      row.innerHTML = `<span>${friend.username} <span class="friend-level">Lv ${friend.level}</span></span>`;
+      const online = this.game.remotePlayers.has(friend.player_id);
+      row.innerHTML = `<span>${online ? '🟢 ' : ''}${friend.username} <span class="friend-level">Lv ${friend.level}</span></span>`;
       const remove = document.createElement('button');
       remove.className = 'danger';
       remove.textContent = 'Remove';

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { sql } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { awardXp } from '../lib/progression.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -27,30 +28,8 @@ router.post('/xp', async (req, res) => {
     return res.status(400).json({ error: 'XP amount must be an integer between 1 and 500' });
   }
   try {
-    const [stats] = await sql`SELECT * FROM player_stats WHERE player_id = ${req.player.id}`;
-    if (!stats) return res.status(404).json({ error: 'Stats not found' });
-
-    let { xp, level, max_hp, attack, defence, hp } = stats;
-    xp += amount;
-    let levelsGained = 0;
-    while (xp >= level * 100) {
-      xp -= level * 100;
-      level += 1;
-      levelsGained += 1;
-      max_hp += 10;
-      attack += 2;
-      defence += 1;
-    }
-    if (levelsGained > 0) hp = max_hp; // full heal on level up
-
-    const [updated] = await sql`
-      UPDATE player_stats
-      SET xp = ${xp}, level = ${level}, max_hp = ${max_hp},
-          attack = ${attack}, defence = ${defence}, hp = ${hp}
-      WHERE player_id = ${req.player.id}
-      RETURNING *
-    `;
-    res.json({ stats: updated, levelsGained });
+    const { stats, levelsGained } = await awardXp(sql, req.player.id, amount);
+    res.json({ stats, levelsGained });
   } catch (err) {
     console.error('xp failed:', err);
     res.status(500).json({ error: 'Could not award XP' });

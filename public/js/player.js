@@ -1,11 +1,13 @@
 // Player movement on the tile grid, with smooth interpolation between tiles.
+// Rendering moved to sprites.js; this module owns position + input.
 
 const MOVE_SPEED = 5.5; // tiles per second
 
 export class Player {
-  constructor(world, username) {
+  constructor(world, username, playerId) {
     this.world = world;
     this.username = username;
+    this.id = playerId;
     this.tx = world.spawn.x;
     this.ty = world.spawn.y;
     this.px = this.tx; // interpolated position, in tile units
@@ -14,6 +16,8 @@ export class Player {
     this.targetY = this.ty;
     this.facing = 'down';
     this.moving = false;
+    this.walkPhase = 0;
+    this.onMove = null; // (x, y, facing) => void — wired to the network
   }
 
   teleport(tx, ty) {
@@ -22,6 +26,7 @@ export class Player {
     this.px = tx;
     this.py = ty;
     this.moving = false;
+    this.onMove?.(tx, ty, this.facing);
   }
 
   // The tile the player is facing (for E-to-interact).
@@ -33,6 +38,7 @@ export class Player {
 
   update(dt, input, isBlocked) {
     if (this.moving) {
+      this.walkPhase += dt * 11;
       const step = MOVE_SPEED * dt;
       const dx = this.targetX - this.px;
       const dy = this.targetY - this.py;
@@ -65,44 +71,6 @@ export class Player {
     this.targetX = nx;
     this.targetY = ny;
     this.moving = true;
-  }
-
-  draw(ctx) {
-    const ts = this.world.tileSize;
-    const x = this.px * ts;
-    const y = this.py * ts;
-
-    // shadow
-    ctx.fillStyle = 'rgba(0,0,0,.3)';
-    ctx.beginPath();
-    ctx.ellipse(x + ts / 2, y + ts - 4, 9, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // body
-    ctx.fillStyle = '#3d6fd0';
-    ctx.fillRect(x + 9, y + 12, 14, 14);
-    // head
-    ctx.fillStyle = '#e8c39e';
-    ctx.beginPath();
-    ctx.arc(x + ts / 2, y + 9, 7, 0, Math.PI * 2);
-    ctx.fill();
-    // facing indicator (eyes)
-    ctx.fillStyle = '#222';
-    const eyeOffsets = {
-      down: [[-3, 0], [3, 0]],
-      up: [],
-      left: [[-4, 0]],
-      right: [[4, 0]]
-    };
-    for (const [ex, ey] of eyeOffsets[this.facing]) {
-      ctx.fillRect(x + ts / 2 + ex - 1, y + 8 + ey, 2, 2);
-    }
-    // name label
-    ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
-    ctx.strokeStyle = 'rgba(0,0,0,.7)';
-    ctx.lineWidth = 3;
-    ctx.strokeText(this.username, x + ts / 2, y - 4);
-    ctx.fillText(this.username, x + ts / 2, y - 4);
+    this.onMove?.(nx, ny, this.facing);
   }
 }

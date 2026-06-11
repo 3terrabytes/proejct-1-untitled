@@ -1,22 +1,18 @@
-// Tile map rendering (Canvas 2D) + collision queries.
+// Isometric world renderer: prerendered ground plane, depth-sorted raised
+// blocks (trees, houses, rocks) interleaved with entities, and a camera
+// that smoothly pans to follow the player.
+import { ISO, art, buildSprites, drawBlock, drawWater, noise } from './sprites.js';
 
 export async function loadWorld() {
   const res = await fetch('/assets/maps/town.json');
   if (!res.ok) throw new Error('Could not load map');
+  buildSprites();
   return new World(await res.json());
 }
 
-const TILE_COLORS = {
-  g: '#3e7a3a',
-  f: '#3e7a3a',
-  p: '#b59a6a',
-  t: '#3e7a3a', // grass under the tree
-  w: '#2b5f9e',
-  h: '#6b5138',
-  d: '#6b5138',
-  c: '#4a4350',
-  k: '#2a2530'
-};
+// Logical tile (possibly fractional) → world-space pixel centre.
+export function isoX(x, y) { return (x - y) * ISO.HW; }
+export function isoY(x, y) { return (x + y) * ISO.HH; }
 
 export class World {
   constructor(mapData) {
@@ -27,6 +23,25 @@ export class World {
     this.legend = mapData.legend;
     this.spawn = mapData.spawn;
     this.zones = mapData.zones;
+
+    this.camera = { x: isoX(this.spawn.x, this.spawn.y), y: isoY(this.spawn.x, this.spawn.y) };
+
+    this.waterTiles = [];
+    this.blocks = []; // raised tiles, depth-sorted with entities every frame
+    for (let y = 0; y < this.height; y++) {
+      for (let x = 0; x < this.width; x++) {
+        const tile = this.rows[y][x];
+        if (tile === 'w') this.waterTiles.push({ x, y });
+        if (tile === 't') this.blocks.push({ x, y, img: () => art.tree });
+        if (tile === 'h') this.blocks.push({ x, y, img: () => art.house });
+        if (tile === 'd') this.blocks.push({ x, y, img: () => art.houseDoor });
+        if (tile === 'k') {
+          this.blocks.push({ x, y, img: () => art.rock[noise(x, y) > 0.8 ? 1 : 0] });
+        }
+      }
+    }
+
+    this.#prerenderGround();
   }
 
   tileAt(tx, ty) {
@@ -36,7 +51,7 @@ export class World {
 
   isSolid(tx, ty) {
     const tile = this.tileAt(tx, ty);
-    if (tile === null) return true; // out of bounds
+    if (tile === null) return true;
     return this.legend[tile]?.solid ?? true;
   }
 
@@ -47,112 +62,127 @@ export class World {
     return zone?.name || '';
   }
 
-  draw(ctx, time) {
-    const ts = this.tileSize;
+  // The whole static ground plane, rendered once into an offscreen canvas.
+  #prerenderGround() {
+    // World-space bounds of all tile diamonds.
+    this.groundOX = (this.height - 1) * ISO.HW + ISO.HW; // distance from left edge to world x=0
+    this.groundOY = ISO.HH;
+    const width = (this.width + this.height) * ISO.HW;
+    const height = (this.width + this.height) * ISO.HH + ISO.H;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
         const tile = this.rows[y][x];
-        const px = x * ts;
-        const py = y * ts;
-        ctx.fillStyle = TILE_COLORS[tile] || '#000';
-        ctx.fillRect(px, py, ts, ts);
-
+        const sx = isoX(x, y) + this.groundOX;
+        const sy = isoY(x, y) + this.groundOY;
+        let img = null;
         switch (tile) {
-          case 'g': this.#grassDetail(ctx, px, py, x, y); break;
-          case 'f': this.#flowers(ctx, px, py, x, y); break;
-          case 'p': this.#pathDetail(ctx, px, py, x, y); break;
-          case 't': this.#tree(ctx, px, py); break;
-          case 'w': this.#water(ctx, px, py, x, y, time); break;
-          case 'h': this.#houseWall(ctx, px, py); break;
-          case 'd': this.#door(ctx, px, py); break;
-          case 'c': this.#caveFloor(ctx, px, py, x, y); break;
-          case 'k': this.#caveWall(ctx, px, py); break;
+          case 'g': img = art.grass[Math.floor(noise(x, y) * art.grass.length)]; break;
+          case 'f': img = art.flowers; break;
+          case 'p': img = art.path[Math.floor(noise(x, y) * art.path.length)]; break;
+          case 't': img = art.grass[Math.floor(noise(x, y) * art.grass.length)]; break;
+          case 'h':
+          case 'd': img = art.path[0]; break;
+          case 'c':
+          case 'k': img = art.cave[Math.floor(noise(x, y) * art.cave.length)]; break;
+          case 'w': break; // water is animated per frame
         }
+        if (img) ctx.drawImage(img, sx - ISO.HW, sy - ISO.HH);
       }
     }
+    this.groundCanvas = canvas;
   }
 
-  // Deterministic pseudo-random per tile so details don't flicker between frames.
-  #noise(x, y) {
-    const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
-    return n - Math.floor(n);
+  // Smoothly pan toward the target (tile-unit float coords), same zoom.
+  updateCamera(targetTileX, targetTileY, dt) {
+    const tx = isoX(targetTileX, targetTileY);
+    const ty = isoY(targetTileX, targetTileY);
+    const ease = Math.min(1, dt * 6);
+    this.camera.x += (tx - this.camera.x) * ease;
+    this.camera.y += (ty - this.camera.y) * ease;
   }
 
-  #grassDetail(ctx, px, py, x, y) {
-    if (this.#noise(x, y) > 0.6) {
-      ctx.fillStyle = '#356b32';
-      ctx.fillRect(px + 8 + this.#noise(y, x) * 14, py + 8 + this.#noise(x + 1, y) * 14, 3, 3);
+  snapCamera(tileX, tileY) {
+    this.camera.x = isoX(tileX, tileY);
+    this.camera.y = isoY(tileX, tileY);
+  }
+
+  /**
+   * Draw the world plus entities.
+   * Each renderable: { px, py (tile-unit floats), paint(ctx, sx, sy),
+   *                    label?: {text, color}, hpRatio? }
+   */
+  draw(ctx, time, renderables) {
+    const { width: cw, height: ch } = ctx.canvas;
+    ctx.fillStyle = '#0d0b14';
+    ctx.fillRect(0, 0, cw, ch);
+
+    ctx.save();
+    ctx.translate(Math.round(cw / 2 - this.camera.x), Math.round(ch / 2 - this.camera.y));
+
+    // 1. static ground
+    ctx.drawImage(this.groundCanvas, -this.groundOX, -this.groundOY);
+
+    // 2. animated water
+    for (const { x, y } of this.waterTiles) {
+      drawWater(ctx, isoX(x, y), isoY(x, y), time, x, y);
     }
-  }
 
-  #flowers(ctx, px, py, x, y) {
-    this.#grassDetail(ctx, px, py, x, y);
-    const colors = ['#e06a8a', '#e8d35a', '#d9e6f2'];
-    for (let i = 0; i < 3; i++) {
-      ctx.fillStyle = colors[i];
-      const fx = px + 5 + this.#noise(x + i, y) * 20;
-      const fy = py + 5 + this.#noise(x, y + i) * 20;
-      ctx.fillRect(fx, fy, 4, 4);
+    // 3. depth-sorted blocks + entities (painter's algorithm on x+y)
+    const queue = [];
+    for (const block of this.blocks) {
+      queue.push({ depth: block.x + block.y, block });
     }
-  }
-
-  #pathDetail(ctx, px, py, x, y) {
-    if (this.#noise(x, y) > 0.55) {
-      ctx.fillStyle = '#a3895c';
-      ctx.fillRect(px + this.#noise(y, x) * 24, py + this.#noise(x + 2, y) * 24, 5, 4);
+    for (const r of renderables) {
+      queue.push({ depth: r.px + r.py + 0.01, entity: r });
     }
-  }
+    queue.sort((a, b) => a.depth - b.depth);
 
-  #tree(ctx, px, py) {
-    const ts = this.tileSize;
-    ctx.fillStyle = '#5a4226';
-    ctx.fillRect(px + ts / 2 - 3, py + ts - 12, 6, 10);
-    ctx.fillStyle = '#2c5c2a';
-    ctx.beginPath();
-    ctx.arc(px + ts / 2, py + 13, 11, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#387538';
-    ctx.beginPath();
-    ctx.arc(px + ts / 2 - 4, py + 10, 6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  #water(ctx, px, py, x, y, time) {
-    const ts = this.tileSize;
-    ctx.fillStyle = 'rgba(255,255,255,.25)';
-    const phase = Math.sin(time / 600 + x * 1.7 + y * 2.3);
-    ctx.fillRect(px + 6 + phase * 4, py + 10, 9, 2);
-    ctx.fillRect(px + 16 - phase * 4, py + 22, 9, 2);
-  }
-
-  #houseWall(ctx, px, py) {
-    const ts = this.tileSize;
-    ctx.fillStyle = '#7d614a';
-    ctx.fillRect(px, py, ts, ts / 2);
-    ctx.strokeStyle = 'rgba(0,0,0,.25)';
-    ctx.strokeRect(px + 0.5, py + 0.5, ts - 1, ts - 1);
-  }
-
-  #door(ctx, px, py) {
-    const ts = this.tileSize;
-    this.#houseWall(ctx, px, py);
-    ctx.fillStyle = '#42301d';
-    ctx.fillRect(px + 8, py + 8, ts - 16, ts - 8);
-    ctx.fillStyle = '#c9a14d';
-    ctx.fillRect(px + ts - 13, py + 18, 3, 3);
-  }
-
-  #caveFloor(ctx, px, py, x, y) {
-    if (this.#noise(x, y) > 0.65) {
-      ctx.fillStyle = '#403a46';
-      ctx.fillRect(px + this.#noise(y, x) * 22, py + this.#noise(x + 3, y) * 22, 6, 5);
+    const labels = [];
+    for (const item of queue) {
+      if (item.block) {
+        drawBlock(ctx, item.block.img(), isoX(item.block.x, item.block.y), isoY(item.block.x, item.block.y));
+      } else {
+        const r = item.entity;
+        const sx = isoX(r.px, r.py);
+        const sy = isoY(r.px, r.py);
+        r.paint(ctx, sx, sy);
+        if (r.label || r.hpRatio !== undefined) labels.push({ r, sx, sy });
+      }
     }
-  }
 
-  #caveWall(ctx, px, py) {
-    const ts = this.tileSize;
-    ctx.fillStyle = '#3a3342';
-    ctx.fillRect(px + 4, py + 4, 10, 8);
-    ctx.fillRect(px + 18, py + 16, 9, 9);
+    // 4. labels + mini HP bars on top so trees never hide who's who
+    for (const { r, sx, sy } of labels) {
+      if (r.hpRatio !== undefined && r.hpRatio < 1) {
+        drawMiniBar(ctx, sx, sy - r.labelHeight - 6, r.hpRatio);
+      }
+      if (r.label) {
+        drawText(ctx, sx, sy - r.labelHeight, r.label.text, r.label.color);
+      }
+    }
+
+    ctx.restore();
   }
+}
+
+function drawText(ctx, x, y, text, color) {
+  ctx.font = "bold 11px 'Segoe UI', sans-serif";
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(10,8,16,0.8)';
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+function drawMiniBar(ctx, x, y, ratio) {
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(x - 14, y, 28, 4);
+  ctx.fillStyle = ratio > 0.4 ? '#5fb86a' : '#d04545';
+  ctx.fillRect(x - 13, y + 1, 26 * Math.max(0, ratio), 2);
 }

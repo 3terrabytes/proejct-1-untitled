@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ashveil — a Groq-powered RPG</title>
+  <title>Ashveil <title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -49,6 +49,7 @@
           <div class="xp-bar"><div id="xp-fill"></div><span id="xp-text"></span></div>
         </div>
         <div class="hud-right">
+          <span id="hud-online" class="hud-pill"></span>
           <span id="hud-gold" class="hud-pill gold"></span>
           <button id="btn-inventory" class="hud-btn" title="Inventory (I)">🎒</button>
           <button id="btn-friends" class="hud-btn" title="Friends (F)">👥<span id="friends-badge" class="badge hidden"></span></button>
@@ -63,7 +64,10 @@
       <div id="chat-panel" class="panel hidden">
         <div class="panel-header">
           <span id="chat-npc-name"></span>
-          <button class="panel-close" data-close="chat-panel">✕</button>
+          <span class="panel-header-actions">
+            <button id="chat-shop-btn" class="chat-shop hidden">🛒 Shop</button>
+            <button class="panel-close" data-close="chat-panel">✕</button>
+          </span>
         </div>
         <div id="chat-messages"></div>
         <form id="chat-form">
@@ -90,7 +94,7 @@
         </div>
         <div id="combat-log"></div>
         <div class="combat-actions">
-          <button id="btn-attack">⚔️ Attack</button>
+          <div id="combat-moves"></div>
           <button id="btn-flee">🏃 Flee</button>
         </div>
       </div>
@@ -98,7 +102,7 @@
       <div id="modal-root"></div>
       <div id="toasts"></div>
 
-      <div id="controls-help">WASD/arrows move · E interact · I inventory · F friends</div>
+      <div id="controls-help">WASD/arrows move · E interact · 1-4 combat moves · I inventory · F friends</div>
     </div>
   </div>
 
