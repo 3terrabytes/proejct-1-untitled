@@ -1,0 +1,83 @@
+{
+  "tileSize": 32,
+  "spawn": {
+    "x": 9,
+    "y": 12
+  },
+  "legend": {
+    "g": {
+      "name": "grass",
+      "solid": false
+    },
+    "f": {
+      "name": "flowers",
+      "solid": false
+    },
+    "p": {
+      "name": "path",
+      "solid": false
+    },
+    "t": {
+      "name": "tree",
+      "solid": true
+    },
+    "w": {
+      "name": "water",
+      "solid": true
+    },
+    "h": {
+      "name": "house",
+      "solid": true
+    },
+    "d": {
+      "name": "door",
+      "solid": true
+    },
+    "c": {
+      "name": "cave floor",
+      "solid": false
+    },
+    "k": {
+      "name": "cave wall",
+      "solid": true
+    }
+  },
+  "zones": [
+    {
+      "name": "Goblin Caves",
+      "x1": 18,
+      "y1": 0,
+      "x2": 29,
+      "y2": 19
+    },
+    {
+      "name": "Ashveil Village",
+      "x1": 0,
+      "y1": 0,
+      "x2": 17,
+      "y2": 19
+    }
+  ],
+  "rows": [
+    "ttttttttttttttttttkkkkkkkkkkkk",
+    "tggggggggggggggggtkcccccccccck",
+    "tghhhhggpgghhhhggtkcckccccccck",
+    "tghhhhggpgghhhhggtkcccccccckck",
+    "tghdhhggpgghhdhggtkcccccccccck",
+    "tgggggggpggggggggtkccccckcccck",
+    "tgfgggggpgggggfggtkcccccccccck",
+    "tggtggggpggggtgggtkcccccccccck",
+    "tgggggggpggggggggtkckcccccccck",
+    "tpppppppppppppppppccccccccccck",
+    "tpppppppppppppppppccccccccccck",
+    "tgggggggpggggggggtkccccccckcck",
+    "tgggggggpggggggggtkcccccccccck",
+    "tggwwwggpggggggggtkcckccccccck",
+    "tggwwwggpggggggggtkcccccccccck",
+    "tggwwwggpggggggggtkcccccccccck",
+    "tgggggggpggggggggtkccccckcccck",
+    "tgggggggpggggggggtkcccccccccck",
+    "tggtggggggggggtggtkcccccccccck",
+    "ttttttttttttttttttkkkkkkkkkkkk"
+  ]
+}

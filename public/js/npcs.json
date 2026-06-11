@@ -1,0 +1,34 @@
+[
+  {
+    "id": "blacksmith_edric",
+    "name": "Edric",
+    "role": "blacksmith",
+    "location": "Ashveil Village",
+    "personality": "Gruff, honest, proud of his craft. Distrusts magic.",
+    "sells": ["Iron Sword", "Leather Armour", "Iron Shield"],
+    "sprite": "blacksmith",
+    "x": 3,
+    "y": 5
+  },
+  {
+    "id": "elder_mara",
+    "name": "Elder Mara",
+    "role": "quest-giver",
+    "location": "Ashveil Village",
+    "personality": "Wise, cryptic, speaks in riddles. Knows dark secrets.",
+    "quests": ["lost_amulet", "goblin_caves"],
+    "sprite": "elder",
+    "x": 13,
+    "y": 5
+  },
+  {
+    "id": "goblin_grunt",
+    "name": "Goblin Grunt",
+    "role": "enemy",
+    "location": "Goblin Caves",
+    "personality": "Aggressive, stupid, loves gold. Yells threats in broken English.",
+    "stats": { "hp": 40, "attack": 8, "defence": 3, "xpReward": 25, "goldDrop": [0, 15] },
+    "sprite": "goblin",
+    "spawns": [[22, 6], [25, 12], [21, 15]]
+  }
+]

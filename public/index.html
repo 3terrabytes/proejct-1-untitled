@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ashveil — a Groq-powered RPG</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <!-- ============ AUTH ============ -->
+  <div id="auth-screen">
+    <div class="auth-card">
+      <h1>🗡️ Ashveil</h1>
+      <p class="auth-tagline">A tiny world where every NPC thinks for itself.</p>
+
+      <div class="auth-tabs">
+        <button id="tab-login" class="auth-tab active">Log in</button>
+        <button id="tab-register" class="auth-tab">Register</button>
+      </div>
+
+      <form id="login-form" class="auth-form">
+        <input id="login-username" type="text" placeholder="Username" autocomplete="username" required>
+        <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required>
+        <button type="submit">Enter the village</button>
+      </form>
+
+      <form id="register-form" class="auth-form hidden">
+        <input id="register-username" type="text" placeholder="Username (3-20 chars)" autocomplete="username" required>
+        <input id="register-email" type="email" placeholder="Email" autocomplete="email" required>
+        <input id="register-password" type="password" placeholder="Password (8+ chars)" autocomplete="new-password" required>
+        <button type="submit">Create character</button>
+      </form>
+
+      <p id="auth-error" class="auth-error hidden"></p>
+    </div>
+  </div>
+
+  <!-- ============ GAME ============ -->
+  <div id="game-screen" class="hidden">
+    <div id="game-wrap">
+      <canvas id="game" width="960" height="640"></canvas>
+
+      <div id="hud">
+        <div class="hud-left">
+          <span id="hud-name"></span>
+          <span id="hud-level" class="hud-pill"></span>
+          <div class="hp-bar"><div id="hp-fill"></div><span id="hp-text"></span></div>
+          <div class="xp-bar"><div id="xp-fill"></div><span id="xp-text"></span></div>
+        </div>
+        <div class="hud-right">
+          <span id="hud-gold" class="hud-pill gold"></span>
+          <button id="btn-inventory" class="hud-btn" title="Inventory (I)">🎒</button>
+          <button id="btn-friends" class="hud-btn" title="Friends (F)">👥<span id="friends-badge" class="badge hidden"></span></button>
+          <button id="btn-logout" class="hud-btn" title="Log out">⎋</button>
+        </div>
+      </div>
+
+      <div id="zone-label"></div>
+      <div id="interact-hint" class="hidden"></div>
+
+      <!-- NPC chat -->
+      <div id="chat-panel" class="panel hidden">
+        <div class="panel-header">
+          <span id="chat-npc-name"></span>
+          <button class="panel-close" data-close="chat-panel">✕</button>
+        </div>
+        <div id="chat-messages"></div>
+        <form id="chat-form">
+          <input id="chat-input" type="text" maxlength="300" placeholder="Say something… (Esc to leave)" autocomplete="off">
+          <button type="submit">Send</button>
+        </form>
+      </div>
+
+      <!-- Combat -->
+      <div id="combat-panel" class="panel hidden">
+        <div class="panel-header">
+          <span id="combat-title">⚔️ Combat</span>
+        </div>
+        <div class="combat-bars">
+          <div class="combat-fighter">
+            <span id="combat-player-name"></span>
+            <div class="hp-bar small"><div id="combat-player-hp"></div></div>
+          </div>
+          <span class="combat-vs">vs</span>
+          <div class="combat-fighter">
+            <span id="combat-enemy-name"></span>
+            <div class="hp-bar small enemy"><div id="combat-enemy-hp"></div></div>
+          </div>
+        </div>
+        <div id="combat-log"></div>
+        <div class="combat-actions">
+          <button id="btn-attack">⚔️ Attack</button>
+          <button id="btn-flee">🏃 Flee</button>
+        </div>
+      </div>
+
+      <div id="modal-root"></div>
+      <div id="toasts"></div>
+
+      <div id="controls-help">WASD/arrows move · E interact · I inventory · F friends</div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
