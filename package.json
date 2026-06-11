@@ -1,7 +1,7 @@
 {
-  "name": "groq-rpg",
+  "name": "rift",
   "version": "0.1.0",
-  "description": "Browser top-down RPG with Groq-powered NPCs",
+  "description": "Rift — multiplayer browser RPG with Groq-powered NPCs",
   "type": "module",
   "main": "server/index.js",
   "scripts": {

@@ -1,4 +1,4 @@
-# 🗡️ Ashveil — Multiplayer Browser RPG with Groq-Powered NPCs
+# 🗡️ Rift — Multiplayer Browser RPG with Groq-Powered NPCs
 
 An isometric browser RPG where every NPC — merchants, enemies, quest-givers —
 is powered by Groq's free LLM API, and the world is shared: every player on the
