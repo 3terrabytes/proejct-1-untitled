@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rift</title>
+  <title>Rift — an AI-powered RPG</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
   <div id="auth-screen">
     <div class="auth-card">
       <h1>🗡️ Rift</h1>
-      <p class="auth-tagline">A tiny world where every NPC thinks for itself.</p>
+      <p class="auth-tagline">Four shards. Four lands. One torn sky.</p>
 
       <div class="auth-tabs">
         <button id="tab-login" class="auth-tab active">Log in</button>
@@ -22,7 +22,7 @@
       <form id="login-form" class="auth-form">
         <input id="login-username" type="text" placeholder="Username" autocomplete="username" required>
         <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required>
-        <button type="submit">Enter the village</button>
+        <button type="submit">Enter the world</button>
       </form>
 
       <form id="register-form" class="auth-form hidden">
@@ -39,7 +39,7 @@
   <!-- ============ GAME ============ -->
   <div id="game-screen" class="hidden">
     <div id="game-wrap">
-      <canvas id="game" width="960" height="640"></canvas>
+      <canvas id="game"></canvas>
 
       <div id="hud">
         <div class="hud-left">
@@ -49,8 +49,10 @@
           <div class="xp-bar"><div id="xp-fill"></div><span id="xp-text"></span></div>
         </div>
         <div class="hud-right">
+          <span id="hud-shards" class="hud-pill shards" title="Journal (Q)"></span>
           <span id="hud-online" class="hud-pill"></span>
           <span id="hud-gold" class="hud-pill gold"></span>
+          <button id="btn-journal" class="hud-btn" title="Journal (Q)">📜</button>
           <button id="btn-inventory" class="hud-btn" title="Inventory (I)">🎒</button>
           <button id="btn-friends" class="hud-btn" title="Friends (F)">👥<span id="friends-badge" class="badge hidden"></span></button>
           <button id="btn-logout" class="hud-btn" title="Log out">⎋</button>
@@ -58,6 +60,7 @@
       </div>
 
       <div id="zone-label"></div>
+      <div id="weather-label"></div>
       <div id="interact-hint" class="hidden"></div>
 
       <!-- NPC chat -->
@@ -76,33 +79,52 @@
         </form>
       </div>
 
-      <!-- Combat -->
-      <div id="combat-panel" class="panel hidden">
-        <div class="panel-header">
-          <span id="combat-title">⚔️ Combat</span>
-        </div>
-        <div class="combat-bars">
-          <div class="combat-fighter">
-            <span id="combat-player-name"></span>
-            <div class="hp-bar small"><div id="combat-player-hp"></div></div>
+      <!-- Battle screen (separate scene for fights) -->
+      <div id="battle-screen" class="hidden">
+        <canvas id="battle-canvas"></canvas>
+        <div id="battle-top">
+          <div class="battle-fighter">
+            <span id="battle-player-name"></span>
+            <div class="hp-bar battle"><div id="battle-player-hp"></div></div>
           </div>
-          <span class="combat-vs">vs</span>
-          <div class="combat-fighter">
-            <span id="combat-enemy-name"></span>
-            <div class="hp-bar small enemy"><div id="combat-enemy-hp"></div></div>
+          <div class="battle-fighter right">
+            <span id="battle-enemy-name"></span>
+            <div class="hp-bar battle enemy"><div id="battle-enemy-hp"></div></div>
           </div>
         </div>
-        <div id="combat-log"></div>
-        <div class="combat-actions">
-          <div id="combat-moves"></div>
+        <div id="battle-log"></div>
+        <div id="battle-bottom">
+          <div id="battle-moves"></div>
           <button id="btn-flee">🏃 Flee</button>
+        </div>
+      </div>
+
+      <!-- Story intro -->
+      <div id="story-intro" class="story-overlay hidden">
+        <div class="story-card">
+          <h2>The Night the Sky Split</h2>
+          <div id="intro-text"></div>
+          <button id="intro-begin">⚔️ Begin</button>
+        </div>
+      </div>
+
+      <!-- Story ending -->
+      <div id="story-ending" class="story-overlay hidden">
+        <div class="story-card">
+          <h2>💠 The Rift is Sealed</h2>
+          <p>The four shards rise from your pack and lock into the altar. Light floods the
+             sky — and for the first time since that night, it holds together.</p>
+          <p>The dens will still crawl with beasts, and the roads still need walking.
+             But the world is whole again, because of you.</p>
+          <p id="ending-stats" class="ending-stats"></p>
+          <button id="ending-close">Keep exploring</button>
         </div>
       </div>
 
       <div id="modal-root"></div>
       <div id="toasts"></div>
 
-      <div id="controls-help">WASD/arrows move · E interact · 1-4 combat moves · I inventory · F friends</div>
+      <div id="controls-help">WASD/arrows move · E interact · 1-4 battle moves · Q journal · I inventory · F friends</div>
     </div>
   </div>
 

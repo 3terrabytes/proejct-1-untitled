@@ -1,136 +1,110 @@
-# 🗡️ Rift — Multiplayer Browser RPG with Groq-Powered NPCs
+# 🗡️ Rift — Multiplayer Browser RPG with AI-Powered NPCs
 
-An isometric browser RPG where every NPC — merchants, enemies, quest-givers —
-is powered by Groq's free LLM API, and the world is shared: every player on the
-server sees the same goblins, watches each other fight, and explores together
-in real time over WebSocket.
+The Rift tore the sky and four shards fell across the land. Cross four biomes,
+take the shards back from the dens' strongest beasts, and seal the Rift at the
+altar beyond the ashlands. Every NPC — merchants, enemies, quest-givers — is
+powered by a free AI model, and the world is shared with everyone online.
 
 **Stack:** Vanilla JS + HTML5 Canvas (isometric) · Node.js/Express + ws ·
-Neon (PostgreSQL) · Groq API. Entirely free to run on Render + Neon + Groq free tiers.
+Neon (PostgreSQL) · free AI API. Entirely free to run on free hosting tiers.
 
 ## Features
 
-- **Isometric world** with a camera that pans to follow you — procedurally
-  drawn tiles, depth-sorted trees/houses/rocks you can walk behind, animated water
-- **Shared multiplayer world** — see other players move and fight live;
-  one combat lock per enemy so nobody steals your kill
-- **Endless, level-scaled enemies** — a server-side spawner keeps the Goblin
-  Caves stocked forever; goblins wander, and chase you on sight. Goblin Brutes
-  (~20%) hit harder and drop better loot
-- **Four combat moves** (keys 1-4): Slash, Heavy Strike (1.9×, 70% to hit),
-  Guard (halve next hit + heal), War Cry (−30% enemy attack) — with cooldowns
-- **Shop panel** — fixed prices enforced server-side, buy & sell tabs;
-  you can still haggle with Edric in chat for LLM-quoted offers
-- **Groq NPCs** — in-character streamed dialogue, mid-fight enemy taunts,
-  per-NPC conversation memory
-- **Server-authoritative progression** — XP, level-ups, gold, loot and prices
-  all resolve in Express against Neon; the client can't spoof anything
+- **A huge 200×70 world, no lag** — the renderer culls to the viewport, so only
+  the ~1,500 visible tiles are drawn each frame regardless of map size
+- **Four biomes with level gates** — Verdant Meadows → Sunscorch Desert (Lv 3)
+  → Mistveil Rainforest (Lv 6) → Ember Ashlands (Lv 10), each with its own
+  tiles, flora, cave den and monsters
+- **A story with an ending** — collect the four Rift Shards (each guarded by a
+  den's strongest beast, guaranteed drop) and seal the Rift at the altar.
+  Journal on **Q** tracks shards and your current objective
+- **Optional fights on a dedicated battle screen** — enemies never force combat;
+  press E to challenge one and the view switches to a battle scene with slide-in
+  intros, lunges, slash arcs, damage numbers, screen shake, particles, guard
+  shimmers, war-cry shockwaves and victory/defeat banners
+- **Enemies only live in caves** — they wander and chase inside their den but
+  are leashed to it; the roads are safe
+- **Endless spawns** — the server keeps every den stocked forever; respawns roll
+  fresh levels from each monster's range (Goblin Grunt Lv 1-3 … Flame Tyrant Lv 12-14)
+- **Wandering merchants** — four travelling traders amble around the roads of
+  each biome selling region-appropriate gear
+- **Weather** — rain, storms with lightning, sandstorms, heat shimmer, mist,
+  ember drift and ashfall, per biome, deterministic so all players see the same sky
+- **Shared multiplayer world over WebSocket** — live players, shared enemies,
+  one combat lock per enemy, reconnect with backoff
+- **AI NPCs** — in-character streamed dialogue, mid-fight taunts, per-NPC memory
+- **Server-authoritative everything** — XP/level-ups, gold, loot, shard drops,
+  shop prices, biome gates and damage caps all enforced server-side
 
 ## Quick start (local)
 
 ```bash
-# 1. Install dependencies
 npm install
-
-# 2. Configure environment
 cp .env.example .env
 #   DATABASE_URL  — from neon.tech dashboard (free)
 #   JWT_SECRET    — node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-#   GROQ_API_KEY  — from console.groq.com (free, no card needed)
-#   GROQ_MODEL    — llama-3.1-8b-instant
-
-# 3. Create the database tables
+#   AI_API_KEY    — free key from console.groq.com (no card needed)
+#   AI_MODEL      — llama-3.1-8b-instant
 npm run migrate
-
-# 4. Run it
-npm run dev    # http://localhost:3000
+npm run dev        # http://localhost:3000
 ```
 
-No build step — the frontend is served straight from `/public`.
+No build step. The map is committed (`public/assets/maps/world.json`);
+regenerate it with `node tools/genmap.js` after editing the generator.
 
 ## How to play
 
 | Key | Action |
 |-----|--------|
 | WASD / arrows | Move (camera follows) |
-| **E** | Talk to NPC / fight the enemy you're facing |
-| **1-4** | Combat moves: Slash · Heavy Strike · Guard · War Cry |
-| **I** | Inventory (equip gear, drink potions) |
-| **F** | Friends (search, request, accept; 🟢 shows who's online) |
-| Esc | Close panels |
+| **E** | Talk / trade / fight (optional!) / use the altar |
+| **1-4** | Battle moves: Slash · Heavy Strike · Guard · War Cry |
+| **Q** | Journal — story, shards, current objective |
+| **I** | Inventory · **F** Friends · Esc closes panels |
 
-- **Edric the blacksmith**: press E → 🛒 Shop button for fixed prices, or chat
-  to haggle (his JSON offers become Buy buttons)
-- **Elder Mara** speaks in riddles and hands out quests
-- **Goblins** wander the caves east of the village and chase anyone who gets
-  close — combat starts automatically when one catches you. They scale with
-  your level, respawn forever, and taunt you mid-fight via Groq
+The road runs west→east through every biome. Dens are north of the road —
+that's where the shards (and the XP) are. Buy gear from Edric in the village
+or from the wandering merchants in later biomes; you'll need it.
 
 ## Architecture
 
 ```
-/public                  ← static frontend, no build step
+/public
   /js
-    main.js              ← entry point, 60fps loop, camera target, auto-engage
-    world.js             ← isometric renderer + camera (prerendered ground)
-    sprites.js           ← all procedural art (tiles, blocks, characters)
-    net.js               ← WebSocket client, remote players + enemy mirror
-    player.js            ← grid movement + collision
-    npc.js               ← friendly NPCs, interaction lookup
-    combat.js            ← 4-move turn combat, server-arbitrated damage
-    ui.js                ← HUD, chat, shop, inventory, friends
-    api.js               ← REST calls + SSE streaming
-    items.json           ← item catalogue (shared with the server)
-    npcs.json            ← NPC definitions (shared with the server)
+    main.js        ← game loop, input, DPR scaling, screen switching
+    world.js       ← viewport-culled isometric renderer + camera + ambience
+    sprites.js     ← all procedural art (tiles, blocks, 8 monsters, NPCs, altar)
+    battle.js      ← battle screen: tweens, particles, damage numbers, banners
+    combat.js      ← combat rules + server conversation
+    weather.js     ← per-biome particle weather, clock-deterministic
+    story.js       ← intro, journal, shard tracking, ending
+    net.js         ← WebSocket client (players/enemies/merchants mirrors)
+    npc.js / ui.js / api.js / items.js / auth.js / player.js
+    items.json / npcs.json   ← shared with the server
+  /assets/maps/world.json    ← generated 200×70 four-biome map
 /server
-  index.js               ← Express app + WebSocket upgrade
-  /game
-    state.js             ← shared world: spawner, wander/chase AI, combat, rewards
-    ws.js                ← JWT-authenticated socket hub, heartbeats
-  /routes                ← auth, player, friends, shop, ai (Groq proxy)
-  /lib                   ← progression (level-ups), catalogue
-/db/migrate.js           ← creates all tables
+  /game/state.js   ← world sim: per-den spawners, wander/chase AI, merchants,
+                     gates, combat arbitration, rewards + shard drops
+  /game/ws.js      ← JWT-authenticated socket hub
+  /routes          ← auth, player, friends, shop, ai (LLM proxy)
+  /lib             ← progression, shared catalogue
+/tools/genmap.js   ← deterministic map generator
+/db/migrate.js
 ```
 
-### Key design points
+### Performance notes
 
-- **The server owns the world.** Enemy positions, spawning, engagement locks,
-  damage caps and kill rewards all live in `server/game/state.js`. Clients
-  mirror that state over WebSocket and only render/predict.
-- **One Groq proxy endpoint** (`POST /api/ai/npc`): API key stays server-side,
-  replies stream as SSE, model swaps via `GROQ_MODEL`.
-- **Shared data files**: `items.json` / `npcs.json` are fetched by the browser
-  and `fs.readFileSync`'d by the server — one source of truth for stats and prices.
-- **Free-tier friendly**: in-memory world state on a single instance, Neon HTTP
-  driver for stateless DB calls, WebSocket reconnect with backoff for Render
-  cold starts.
-
-## API
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/auth/register` · `/login` | Account + JWT |
-| GET | `/api/auth/me` | Current player profile |
-| GET | `/api/player/stats` · `/inventory` | Stats / items |
-| POST | `/api/player/xp` · `/hp` · `/gold` | Progression (validated/clamped) |
-| POST | `/api/player/inventory` | Add item (LLM-negotiated price allowed) |
-| POST | `/api/player/equip/:itemId` | Equip/unequip toggle |
-| DELETE | `/api/player/inventory/:itemId` | Consume/discard |
-| POST | `/api/shop/buy` · `/sell` | Fixed-price shop (server-side prices) |
-| GET/POST/DELETE | `/api/friends/...` | Friends system |
-| POST | `/api/ai/npc` | NPC chat → Groq → streamed SSE reply |
-| GET/POST | `/api/ai/memory/:npcId` | Per-NPC conversation memory |
-| WS | `/ws?token=JWT` | Shared world: presence, enemies, combat |
+- Tile/block art is prerendered once into offscreen canvases at startup;
+  per frame it's ~1,500 `drawImage` calls for the visible slice plus entities
+- Entities outside the view are skipped; weather is screen-space particles
+- The server ticks the whole world (20 enemies + 4 merchants) at 5 Hz —
+  negligible CPU, fits Render's free tier
 
 ## Deploy to Render
 
-1. Push this repo to GitHub
-2. Create a **Web Service** on Render → connect the repo
-3. Build command: `npm install` · Start command: `node server/index.js`
-4. Add env vars: `DATABASE_URL`, `JWT_SECRET`, `GROQ_API_KEY`, `GROQ_MODEL`
-5. Run `npm run migrate` once (locally, pointed at the Neon URL) → Deploy
-
-Render's free tier supports WebSockets. Note the instance sleeps after ~15 min
-idle — the first visit wakes it (~30s) and the game auto-reconnects.
+1. Push to GitHub → create a **Web Service** → connect the repo
+2. Build: `npm install` · Start: `node server/index.js`
+3. Env vars: `DATABASE_URL`, `JWT_SECRET`, `AI_API_KEY`, `AI_MODEL`
+4. `npm run migrate` once locally against the Neon URL → Deploy
 
 Total cost: **£0/month.**

@@ -18,6 +18,7 @@ export class Ui {
       name: document.getElementById('hud-name'),
       level: document.getElementById('hud-level'),
       gold: document.getElementById('hud-gold'),
+      shards: document.getElementById('hud-shards'),
       online: document.getElementById('hud-online'),
       hpFill: document.getElementById('hp-fill'),
       hpText: document.getElementById('hp-text'),
@@ -26,6 +27,8 @@ export class Ui {
       friendsBadge: document.getElementById('friends-badge')
     };
     this.zoneLabel = document.getElementById('zone-label');
+    this.weatherLabel = document.getElementById('weather-label');
+    this.lastGateToast = 0;
     this.interactHint = document.getElementById('interact-hint');
     this.chatPanel = document.getElementById('chat-panel');
     this.chatMessages = document.getElementById('chat-messages');
@@ -42,6 +45,8 @@ export class Ui {
     this.chatShopBtn.addEventListener('click', () => {
       if (this.chatNpc?.sells) this.openShop(this.chatNpc);
     });
+    document.getElementById('btn-journal').addEventListener('click', () => this.game.story.openJournal());
+    this.hud.shards.addEventListener('click', () => this.game.story.openJournal());
     document.getElementById('btn-inventory').addEventListener('click', () => this.openInventory());
     document.getElementById('btn-friends').addEventListener('click', () => this.openFriends());
     document.getElementById('btn-logout').addEventListener('click', () => {
@@ -67,6 +72,17 @@ export class Ui {
     const needed = stats.level * 100;
     this.hud.xpFill.style.width = `${Math.min(100, (stats.xp / needed) * 100)}%`;
     this.hud.xpText.textContent = `${stats.xp}/${needed} XP`;
+    this.hud.shards.textContent = `💠 ${this.game.story?.shardCount() ?? 0}/4`;
+  }
+
+  setWeather(text) {
+    if (this.weatherLabel.textContent !== text) this.weatherLabel.textContent = text;
+  }
+
+  gateBlocked(biome, minLevel) {
+    if (Date.now() - this.lastGateToast < 2500) return;
+    this.lastGateToast = Date.now();
+    this.toast(`⛩️ The gate to ${biome} repels you — requires level ${minLevel}.`, 'bad');
   }
 
   updateOnline(connected) {

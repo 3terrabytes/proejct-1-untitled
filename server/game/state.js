@@ -1,6 +1,7 @@
-// Server-authoritative shared world: connected players, enemy spawning,
-// wander/chase AI, combat arbitration and kill rewards. Everything here is
-// in-memory (single instance) — persistent data still lives in Neon.
+// Server-authoritative shared world: connected players, per-biome enemy
+// spawning (caves only), wander/chase AI, wandering merchants, biome gates,
+// combat arbitration and kill rewards (including story shard drops).
+// Everything here is in-memory (single instance) — persistent data lives in Neon.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,34 +11,32 @@ import { awardXp, addGold } from '../lib/progression.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const map = JSON.parse(
-  readFileSync(path.join(__dirname, '../../public/assets/maps/town.json'), 'utf8')
+  readFileSync(path.join(__dirname, '../../public/assets/maps/world.json'), 'utf8')
 );
 
 const TICK_MS = 200;
 const CHASE_RADIUS = 4;
-const SPAWN_MIN_DIST = 4; // don't spawn on top of someone
+const SPAWN_MIN_DIST = 4;
 const RESPAWN_DELAY_MS = [3000, 8000];
-const BASE_ENEMY_COUNT = 4;
-const MAX_ENEMIES = 9;
+const ENEMIES_PER_CAVE = 5;
 
 const ENEMY_DEFS = NPCS.filter((npc) => npc.role === 'enemy');
+const MERCHANT_DEFS = NPCS.filter((npc) => npc.role === 'merchant');
 const FRIENDLY_TILES = new Set(
-  NPCS.filter((npc) => npc.role !== 'enemy').map((npc) => `${npc.x},${npc.y}`)
+  NPCS.filter((npc) => npc.x !== undefined).map((npc) => `${npc.x},${npc.y}`)
 );
 
-// Loot tables per enemy def: [chance, item name] checked top to bottom.
+// Loot tables per enemy def: [chance, item name], checked top to bottom.
+// Shard drops are handled separately (guaranteed until owned).
 const LOOT_TABLES = {
-  goblin_grunt: [
-    [0.28, 'Health Potion'],
-    [0.25, 'Goblin Ear'],
-    [0.07, 'Rusty Dagger']
-  ],
-  goblin_brute: [
-    [0.3, 'Greater Potion'],
-    [0.25, 'Goblin Ear'],
-    [0.12, 'Brute Cleaver'],
-    [0.08, 'Iron Helm']
-  ]
+  goblin_grunt: [[0.28, 'Health Potion'], [0.25, 'Goblin Ear'], [0.07, 'Rusty Dagger']],
+  goblin_brute: [[0.3, 'Greater Potion'], [0.25, 'Goblin Ear'], [0.12, 'Brute Cleaver'], [0.08, 'Iron Helm']],
+  sand_scorpion: [[0.35, 'Scorpion Stinger'], [0.2, 'Health Potion'], [0.1, 'Greater Potion']],
+  bandit_raider: [[0.3, 'Greater Potion'], [0.2, 'Scorpion Stinger'], [0.06, 'Scimitar']],
+  jungle_viper: [[0.35, 'Viper Fang'], [0.25, 'Greater Potion']],
+  shadow_panther: [[0.25, 'Viper Fang'], [0.2, 'Elixir of Dawn'], [0.06, 'Panther Cloak']],
+  ember_imp: [[0.35, 'Ember Core'], [0.15, 'Elixir of Dawn']],
+  flame_tyrant: [[0.4, 'Elixir of Dawn'], [0.3, 'Ember Core'], [0.08, 'Obsidian Edge']]
 };
 
 const randBetween = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
@@ -45,29 +44,53 @@ const chebyshev = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 
 class GameWorld {
   constructor() {
-    this.players = new Map(); // playerId -> {id, username, level, x, y, facing, socket}
-    this.enemies = new Map(); // enemyId -> enemy
+    this.players = new Map();
+    this.enemies = new Map();
+    this.merchants = new Map();
     this.nextEnemyId = 1;
-    this.pendingSpawns = 0;
     this.spawnPoint = map.spawn;
 
-    // All cave-floor tiles ('c') — the only ground enemies may stand on,
-    // which automatically leashes them to the caves.
-    this.caveTiles = [];
-    for (let y = 0; y < map.rows.length; y++) {
-      for (let x = 0; x < map.rows[y].length; x++) {
-        if (map.rows[y][x] === 'c') this.caveTiles.push({ x, y });
+    // Per-biome cave floor tiles — the only ground enemies may stand on.
+    this.caves = map.biomes.map((biome) => {
+      const tiles = [];
+      const { x1, y1, x2, y2 } = biome.cave;
+      for (let y = y1; y <= y2; y++) {
+        for (let x = x1; x <= x2; x++) {
+          if (map.rows[y][x] === 'c') tiles.push({ x, y });
+        }
       }
+      const pool = ENEMY_DEFS.filter((def) => def.biome === biome.id);
+      return { biome: biome.id, rect: biome.cave, tiles, pool, pending: 0 };
+    });
+
+    for (const def of MERCHANT_DEFS) {
+      this.merchants.set(def.id, {
+        id: def.id,
+        name: def.name,
+        sprite: def.sprite,
+        x: def.wander.x,
+        y: def.wander.y,
+        anchor: def.wander,
+        nextMoveAt: Date.now() + randBetween(1000, 3000)
+      });
     }
 
     setInterval(() => this.tick(), TICK_MS).unref();
   }
 
-  walkable(x, y) {
+  tileAt(x, y) {
     const row = map.rows[y];
-    if (!row || x < 0 || x >= row.length) return false;
-    if (map.legend[row[x]]?.solid) return false;
+    return row && x >= 0 && x < row.length ? row[x] : null;
+  }
+
+  walkable(x, y) {
+    const tile = this.tileAt(x, y);
+    if (tile === null || map.legend[tile]?.solid) return false;
     return !FRIENDLY_TILES.has(`${x},${y}`);
+  }
+
+  biomeAt(x) {
+    return map.biomes.find((b) => x >= b.x1 && x <= b.x2) || null;
   }
 
   // ---------- messaging ----------
@@ -91,6 +114,7 @@ class GameWorld {
       defId: enemy.def.id,
       name: `${enemy.def.name} Lv ${enemy.level}`,
       sprite: enemy.def.sprite,
+      biome: enemy.def.biome,
       level: enemy.level,
       x: enemy.x,
       y: enemy.y,
@@ -100,6 +124,10 @@ class GameWorld {
       defence: enemy.defence,
       engagedBy: enemy.engagedBy
     };
+  }
+
+  merchantView(m) {
+    return { id: m.id, name: m.name, sprite: m.sprite, x: m.x, y: m.y };
   }
 
   playerView(player) {
@@ -116,10 +144,9 @@ class GameWorld {
   // ---------- player lifecycle ----------
 
   addPlayer(id, username, level, socket) {
-    // One live connection per account: replace any previous socket.
     const existing = this.players.get(id);
     if (existing) {
-      try { existing.socket.close(4000, 'Logged in elsewhere'); } catch { /* already gone */ }
+      try { existing.socket.close(4000, 'Logged in elsewhere'); } catch { /* gone */ }
       this.removePlayer(id, true);
     }
     const player = {
@@ -132,7 +159,8 @@ class GameWorld {
       t: 'welcome',
       you: this.playerView(player),
       players: [...this.players.values()].filter((p) => p.id !== id).map((p) => this.playerView(p)),
-      enemies: [...this.enemies.values()].map((e) => this.enemyView(e))
+      enemies: [...this.enemies.values()].map((e) => this.enemyView(e)),
+      merchants: [...this.merchants.values()].map((m) => this.merchantView(m))
     });
   }
 
@@ -147,10 +175,20 @@ class GameWorld {
     const player = this.players.get(id);
     if (!player) return;
     if (!Number.isInteger(x) || !Number.isInteger(y) || !this.walkable(x, y)) return;
-    if (chebyshev(player, { x, y }) > 3) {
-      // Too big a jump for one step — accept it anyway (teleport on respawn)
-      // but only if it lands somewhere legal, which we just checked.
+
+    // Biome gates: you must be strong enough for the lands beyond.
+    const targetBiome = this.biomeAt(x);
+    const currentBiome = this.biomeAt(player.x);
+    if (targetBiome && targetBiome !== currentBiome && targetBiome.gate
+        && player.level < targetBiome.gate.minLevel && x > player.x) {
+      this.sendTo(id, {
+        t: 'gate_blocked',
+        biome: targetBiome.name,
+        minLevel: targetBiome.gate.minLevel
+      });
+      return;
     }
+
     player.x = x;
     player.y = y;
     if (['up', 'down', 'left', 'right'].includes(facing)) player.facing = facing;
@@ -159,35 +197,45 @@ class GameWorld {
 
   // ---------- enemies ----------
 
-  averagePlayerLevel() {
-    if (this.players.size === 0) return 1;
-    let total = 0;
-    for (const p of this.players.values()) total += p.level;
-    return Math.max(1, Math.round(total / this.players.size));
-  }
-
-  targetEnemyCount() {
-    return Math.min(MAX_ENEMIES, BASE_ENEMY_COUNT + this.players.size);
-  }
-
-  pickEnemyDef() {
-    const roll = Math.random();
-    let cumulative = 0;
-    for (const def of ENEMY_DEFS) {
-      cumulative += def.spawnWeight ?? 1 / ENEMY_DEFS.length;
-      if (roll < cumulative) return def;
-    }
-    return ENEMY_DEFS[0];
-  }
-
-  spawnTile() {
+  spawnEnemy(cave) {
     const players = [...this.players.values()];
-    const candidates = this.caveTiles.filter((tile) => {
+    const candidates = cave.tiles.filter((tile) => {
       if (this.enemyAt(tile.x, tile.y)) return false;
       return players.every((p) => chebyshev(p, tile) >= SPAWN_MIN_DIST);
     });
-    if (candidates.length === 0) return null;
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    if (candidates.length === 0 || cave.pool.length === 0) return;
+    const tile = candidates[Math.floor(Math.random() * candidates.length)];
+
+    const roll = Math.random();
+    let cumulative = 0;
+    let def = cave.pool[0];
+    for (const candidate of cave.pool) {
+      cumulative += candidate.spawnWeight ?? 1 / cave.pool.length;
+      if (roll < cumulative) { def = candidate; break; }
+    }
+
+    const base = def.stats;
+    const level = randBetween(def.levelRange[0], def.levelRange[1]);
+    const over = level - def.levelRange[0];
+    const enemy = {
+      id: this.nextEnemyId++,
+      def,
+      cave,
+      level,
+      x: tile.x,
+      y: tile.y,
+      hp: base.hp + 14 * over,
+      maxHp: base.hp + 14 * over,
+      attack: base.attack + 2 * over,
+      defence: base.defence + over,
+      xpReward: Math.min(400, base.xpReward + 14 * over),
+      goldMin: Math.min(200, base.goldDrop[0] + 3 * over),
+      goldMax: Math.min(200, base.goldDrop[1] + 6 * over),
+      engagedBy: null,
+      nextMoveAt: Date.now() + randBetween(500, 1500)
+    };
+    this.enemies.set(enemy.id, enemy);
+    this.broadcast({ t: 'enemy_spawn', enemy: this.enemyView(enemy) });
   }
 
   enemyAt(x, y) {
@@ -197,46 +245,23 @@ class GameWorld {
     return null;
   }
 
-  spawnEnemy() {
-    const tile = this.spawnTile();
-    if (!tile) return;
-    const def = this.pickEnemyDef();
-    const base = def.stats;
-    const level = Math.max(1, this.averagePlayerLevel() + randBetween(-1, 1));
-    const enemy = {
-      id: this.nextEnemyId++,
-      def,
-      level,
-      x: tile.x,
-      y: tile.y,
-      hp: base.hp + 12 * (level - 1),
-      maxHp: base.hp + 12 * (level - 1),
-      attack: base.attack + 2 * (level - 1),
-      defence: base.defence + (level - 1),
-      xpReward: Math.min(400, base.xpReward + 12 * (level - 1)),
-      goldMin: Math.min(200, base.goldDrop[0] + 2 * (level - 1)),
-      goldMax: Math.min(200, base.goldDrop[1] + 5 * (level - 1)),
-      engagedBy: null,
-      nextMoveAt: Date.now() + randBetween(500, 1500)
-    };
-    this.enemies.set(enemy.id, enemy);
-    this.broadcast({ t: 'enemy_spawn', enemy: this.enemyView(enemy) });
-  }
-
   tick() {
     const now = Date.now();
 
-    // Keep the cave stocked — endless goblins.
-    const deficit = this.targetEnemyCount() - this.enemies.size - this.pendingSpawns;
-    for (let i = 0; i < deficit; i++) {
-      this.pendingSpawns++;
-      setTimeout(() => {
-        this.pendingSpawns--;
-        this.spawnEnemy();
-      }, randBetween(...RESPAWN_DELAY_MS)).unref();
+    // Keep every cave stocked — endless enemies, but only in caves.
+    for (const cave of this.caves) {
+      const alive = [...this.enemies.values()].filter((e) => e.cave === cave).length;
+      const deficit = ENEMIES_PER_CAVE - alive - cave.pending;
+      for (let i = 0; i < deficit; i++) {
+        cave.pending++;
+        setTimeout(() => {
+          cave.pending--;
+          this.spawnEnemy(cave);
+        }, randBetween(...RESPAWN_DELAY_MS)).unref();
+      }
     }
 
-    // Wander / chase.
+    // Enemy wander / chase (leashed to their cave floor).
     const moves = [];
     for (const enemy of this.enemies.values()) {
       if (enemy.engagedBy || now < enemy.nextMoveAt) continue;
@@ -254,7 +279,6 @@ class GameWorld {
       } else if (!target && Math.random() < 0.6) {
         step = this.randomStep(enemy);
       }
-
       if (step) {
         enemy.x = step.x;
         enemy.y = step.y;
@@ -263,11 +287,46 @@ class GameWorld {
       enemy.nextMoveAt = now + (target ? 350 : 650) + randBetween(0, 400);
     }
     if (moves.length) this.broadcast({ t: 'enemies_move', moves });
+
+    // Wandering merchants amble around their patch of road.
+    const merchantMoves = [];
+    for (const merchant of this.merchants.values()) {
+      if (now < merchant.nextMoveAt) continue;
+      merchant.nextMoveAt = now + randBetween(1200, 2800);
+      if (Math.random() < 0.45) continue; // they like to linger
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].sort(() => Math.random() - 0.5);
+      for (const [dx, dy] of dirs) {
+        const x = merchant.x + dx;
+        const y = merchant.y + dy;
+        if (!this.merchantCanStep(merchant, x, y)) continue;
+        merchant.x = x;
+        merchant.y = y;
+        merchantMoves.push({ id: merchant.id, x, y });
+        break;
+      }
+    }
+    if (merchantMoves.length) this.broadcast({ t: 'merchants_move', moves: merchantMoves });
   }
 
-  enemyCanStep(x, y) {
-    const row = map.rows[y];
-    if (!row || row[x] !== 'c') return false; // cave floor only — natural leash
+  merchantCanStep(merchant, x, y) {
+    const tile = this.tileAt(x, y);
+    if (tile === null || map.legend[tile]?.solid) return false;
+    if (tile === 'c' || tile === 'G') return false; // stay out of caves and gates
+    if (Math.max(Math.abs(x - merchant.anchor.x), Math.abs(y - merchant.anchor.y)) > merchant.anchor.radius) return false;
+    if (FRIENDLY_TILES.has(`${x},${y}`)) return false;
+    for (const other of this.merchants.values()) {
+      if (other !== merchant && other.x === x && other.y === y) return false;
+    }
+    for (const player of this.players.values()) {
+      if (player.x === x && player.y === y) return false;
+    }
+    return true;
+  }
+
+  enemyCanStep(enemy, x, y) {
+    if (this.tileAt(x, y) !== 'c') return false;
+    const { x1, y1, x2, y2 } = enemy.cave.rect;
+    if (x < x1 || x > x2 || y < y1 || y > y2) return false; // leashed to its cave
     if (this.enemyAt(x, y)) return false;
     for (const player of this.players.values()) {
       if (player.x === x && player.y === y) return false;
@@ -278,12 +337,11 @@ class GameWorld {
   stepToward(enemy, target) {
     const dx = Math.sign(target.x - enemy.x);
     const dy = Math.sign(target.y - enemy.y);
-    // Try the dominant axis first, then the other.
     const tries = Math.abs(target.x - enemy.x) >= Math.abs(target.y - enemy.y)
       ? [[dx, 0], [0, dy]]
       : [[0, dy], [dx, 0]];
     for (const [sx, sy] of tries) {
-      if ((sx || sy) && this.enemyCanStep(enemy.x + sx, enemy.y + sy)) {
+      if ((sx || sy) && this.enemyCanStep(enemy, enemy.x + sx, enemy.y + sy)) {
         return { x: enemy.x + sx, y: enemy.y + sy };
       }
     }
@@ -293,7 +351,7 @@ class GameWorld {
   randomStep(enemy) {
     const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].sort(() => Math.random() - 0.5);
     for (const [sx, sy] of dirs) {
-      if (this.enemyCanStep(enemy.x + sx, enemy.y + sy)) {
+      if (this.enemyCanStep(enemy, enemy.x + sx, enemy.y + sy)) {
         return { x: enemy.x + sx, y: enemy.y + sy };
       }
     }
@@ -341,7 +399,7 @@ class GameWorld {
     if (!player || !enemy || enemy.engagedBy !== playerId) return;
 
     // Sanity-cap claimed damage: generous, but no one-shotting from a hacked client.
-    const cap = 80 + player.level * 10;
+    const cap = 80 + player.level * 12;
     const dealt = Math.min(Math.max(1, Math.floor(Number(damage) || 1)), cap);
     enemy.hp = Math.max(0, enemy.hp - dealt);
 
@@ -357,7 +415,7 @@ class GameWorld {
       const { stats, levelsGained } = await awardXp(sql, playerId, enemy.xpReward);
       const gold = randBetween(enemy.goldMin, enemy.goldMax);
       const finalStats = gold > 0 ? await addGold(sql, playerId, gold) : stats;
-      const loot = await this.rollLoot(playerId, enemy.def.id);
+      const loot = await this.rollLoot(playerId, enemy.def);
 
       if (player.level !== finalStats.level) {
         player.level = finalStats.level;
@@ -377,24 +435,40 @@ class GameWorld {
     }
   }
 
-  async rollLoot(playerId, defId) {
-    const table = LOOT_TABLES[defId] || [];
+  async rollLoot(playerId, def) {
+    // Story shards: the den's strongest beast always yields its shard
+    // until the player owns it.
+    if (def.shardDrop) {
+      const [owned] = await sql`
+        SELECT id FROM inventory
+        WHERE player_id = ${playerId} AND item_name = ${def.shardDrop}
+      `;
+      if (!owned) {
+        await this.giveItem(playerId, def.shardDrop);
+        return def.shardDrop;
+      }
+    }
+    const table = LOOT_TABLES[def.id] || [];
     const roll = Math.random();
     let cumulative = 0;
     for (const [chance, itemName] of table) {
       cumulative += chance;
       if (roll < cumulative) {
-        const item = getItem(itemName);
-        if (!item) return null;
-        await sql`
-          INSERT INTO inventory (player_id, item_name, item_type, slot, stats)
-          VALUES (${playerId}, ${item.name}, ${item.type}, ${item.slot},
-                  ${item.stats ? JSON.stringify(item.stats) : null})
-        `;
-        return item.name;
+        await this.giveItem(playerId, itemName);
+        return itemName;
       }
     }
     return null;
+  }
+
+  async giveItem(playerId, itemName) {
+    const item = getItem(itemName);
+    if (!item) return;
+    await sql`
+      INSERT INTO inventory (player_id, item_name, item_type, slot, stats)
+      VALUES (${playerId}, ${item.name}, ${item.type}, ${item.slot},
+              ${item.stats ? JSON.stringify(item.stats) : null})
+    `;
   }
 }
 

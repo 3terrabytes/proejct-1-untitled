@@ -1,6 +1,6 @@
-// Turn-based combat against server-owned enemies. The player picks one of
-// four moves (keys 1-4); damage claims go to the server over the WebSocket,
-// which arbitrates hits, deaths and rewards. Taunts come from Groq.
+// Turn-based combat against server-owned enemies, played out on the battle
+// screen (battle.js does the visuals; this file owns rules + server talk).
+// Fights are optional — you only enter one by pressing E on an enemy.
 
 import { api, streamNpcReply } from './api.js';
 import { equipmentBonuses } from './items.js';
@@ -26,12 +26,13 @@ export const MOVES = [
   }
 ];
 
-const REWARD_TIMEOUT_MS = 5000;
+const REWARD_TIMEOUT_MS = 6000;
 
 export class CombatManager {
-  constructor(game, net) {
+  constructor(game, net, battle) {
     this.game = game;
     this.net = net;
+    this.battle = battle;
     this.enemy = null;
     this.busy = false;
     this.over = false;
@@ -40,14 +41,15 @@ export class CombatManager {
     this.cooldowns = {};
     this.pendingEngage = null;
     this.rewardTimer = null;
+    this.pendingRewards = null;
 
-    this.panel = document.getElementById('combat-panel');
-    this.log = document.getElementById('combat-log');
-    this.playerName = document.getElementById('combat-player-name');
-    this.enemyName = document.getElementById('combat-enemy-name');
-    this.playerHpBar = document.getElementById('combat-player-hp');
-    this.enemyHpBar = document.getElementById('combat-enemy-hp');
-    this.movesBox = document.getElementById('combat-moves');
+    this.screen = document.getElementById('battle-screen');
+    this.log = document.getElementById('battle-log');
+    this.playerName = document.getElementById('battle-player-name');
+    this.enemyName = document.getElementById('battle-enemy-name');
+    this.playerHpBar = document.getElementById('battle-player-hp');
+    this.enemyHpBar = document.getElementById('battle-enemy-hp');
+    this.movesBox = document.getElementById('battle-moves');
     this.fleeBtn = document.getElementById('btn-flee');
 
     this.buttons = MOVES.map((move, i) => {
@@ -94,31 +96,36 @@ export class CombatManager {
     this.net.send({ t: 'engage', enemyId: enemyMirror.id });
   }
 
-  onEngageOk(msg) {
+  async onEngageOk(msg) {
     this.pendingEngage = null;
-    // Use the server's authoritative snapshot of the enemy.
     const mirror = this.game.enemies.get(msg.enemy.id);
     this.enemy = mirror ? Object.assign(mirror, msg.enemy) : { ...msg.enemy };
 
     this.over = false;
-    this.busy = false;
+    this.busy = true; // locked until the intro finishes
     this.guarded = false;
     this.debuffTurns = 0;
     this.cooldowns = {};
+    this.pendingRewards = null;
     this.log.innerHTML = '';
-    this.playerName.textContent = this.game.player.username;
+    this.playerName.textContent = `${this.game.player.username} · Lv ${this.game.stats.level}`;
     this.enemyName.textContent = this.enemy.name;
-    this.panel.classList.remove('hidden');
+    this.screen.classList.remove('hidden');
     this.refreshButtons();
     this.updateBars();
-    this.addLog(`You square up against the ${this.enemy.name}!`, 'info');
-    this.requestTaunt(`The adventurer ${this.game.player.username} draws a weapon and attacks you!`);
+
+    const biome = this.enemy.biome || 'meadow';
+    const intro = this.battle.enter(this.enemy, { id: this.game.player.id }, biome);
+    this.addLog(`You face the ${this.enemy.name}!`, 'info');
+    this.requestTaunt(`The adventurer ${this.game.player.username} draws a weapon and challenges you!`);
+    await intro;
+    this.busy = false;
+    this.refreshButtons();
   }
 
   onEngageDenied(msg) {
     this.pendingEngage = null;
     this.game.ui.toast(msg.reason, 'bad');
-    this.game.reengageAt = Date.now() + 2500;
   }
 
   end(sendDisengage = true) {
@@ -128,9 +135,10 @@ export class CombatManager {
     clearTimeout(this.rewardTimer);
     this.enemy = null;
     this.pendingEngage = null;
-    this.panel.classList.add('hidden');
-    this.game.reengageAt = Date.now() + 2500;
+    this.screen.classList.add('hidden');
+    this.battle.exit();
     api.setHp(this.game.stats.hp).catch(() => {});
+    this.game.ui.updateHud();
   }
 
   // ---------- UI plumbing ----------
@@ -179,7 +187,7 @@ export class CombatManager {
         this.log.scrollTop = this.log.scrollHeight;
       }
     ).catch(() => {
-      line.textContent += '…growls menacingly.';
+      line.textContent += '…snarls.';
     });
   }
 
@@ -204,42 +212,47 @@ export class CombatManager {
       this.guarded = true;
       const heal = Math.max(1, Math.round(this.game.stats.max_hp * 0.05));
       this.game.stats.hp = Math.min(this.game.stats.max_hp, this.game.stats.hp + heal);
-      this.addLog(`🛡️ You raise your guard (+${heal} HP). The next hit is halved.`);
+      this.addLog(`🛡️ You raise your guard (+${heal} HP).`);
+      await this.battle.guard();
     } else if (move.warcry) {
       this.debuffTurns = move.warcry;
-      this.addLog(`📣 You let out a war cry! The ${this.enemy.name} falters (−30% attack).`);
-    } else if (Math.random() > move.acc) {
-      this.addLog(`💨 Your ${move.name} misses!`);
+      this.addLog(`📣 Your war cry shakes the ${this.enemy.name} (−30% attack).`);
+      await this.battle.warcry();
     } else {
-      const damage = Math.max(
-        1,
-        Math.floor(this.playerTotals().attack * move.mult) - this.enemy.defence + randBetween(-2, 2)
-      );
-      this.enemy.hp = Math.max(0, this.enemy.hp - damage); // optimistic; server confirms
-      this.addLog(`${move.icon} Your ${move.name} hits for ${damage} damage.`);
-      this.net.send({ t: 'attack', enemyId: this.enemy.id, damage });
-      enemyMayDie = this.enemy.hp <= 0;
+      const hit = Math.random() <= move.acc;
+      let damage = 0;
+      if (hit) {
+        damage = Math.max(
+          1,
+          Math.floor(this.playerTotals().attack * move.mult) - this.enemy.defence + randBetween(-2, 2)
+        );
+        this.enemy.hp = Math.max(0, this.enemy.hp - damage); // optimistic; server confirms
+        this.addLog(`${move.icon} ${move.name} hits for ${damage}.`);
+        this.net.send({ t: 'attack', enemyId: this.enemy.id, damage });
+        enemyMayDie = this.enemy.hp <= 0;
+      } else {
+        this.addLog(`💨 Your ${move.name} misses!`);
+      }
+      await this.battle.playerAttack(move.icon, hit, damage, move.id === 'heavy');
+      this.updateBars();
     }
-    this.updateBars();
 
     if (enemyMayDie) {
-      // Wait for the server's enemy_dead + rewards.
-      this.addLog(`💀 The ${this.enemy.name} collapses!`, 'info');
       this.over = true;
       this.refreshButtons();
       this.rewardTimer = setTimeout(() => {
         this.game.ui.toast('No reply from the server — rewards may be delayed.', 'bad');
         this.end(false);
       }, REWARD_TIMEOUT_MS);
+      // victory plays out in onRewards / onEnemyDead
       return;
     }
 
-    await new Promise((r) => setTimeout(r, 550));
+    await this.battle.wait(260);
     if (!this.active || this.over) return;
-    this.enemyTurn();
+    await this.enemyTurn();
     if (!this.active || this.over) return;
 
-    // tick cooldowns at the end of the round
     for (const key of Object.keys(this.cooldowns)) {
       if (this.cooldowns[key] > 0) this.cooldowns[key] -= 1;
     }
@@ -248,7 +261,7 @@ export class CombatManager {
     this.refreshButtons();
   }
 
-  enemyTurn() {
+  async enemyTurn() {
     if (!this.enemy || this.enemy.hp <= 0) return;
     const attackPower = this.debuffTurns > 0
       ? Math.floor(this.enemy.attack * 0.7)
@@ -256,18 +269,20 @@ export class CombatManager {
     if (this.debuffTurns > 0) this.debuffTurns -= 1;
 
     let damage = Math.max(1, attackPower - this.playerTotals().defence + randBetween(-2, 2));
-    if (this.guarded) {
+    const wasGuarded = this.guarded;
+    if (wasGuarded) {
       damage = Math.max(1, Math.ceil(damage / 2));
       this.guarded = false;
-      this.addLog(`🛡️ Your guard absorbs the blow — only ${damage} damage.`, 'hit');
+      this.addLog(`🛡️ Your guard absorbs the blow — ${damage} damage.`, 'hit');
     } else {
-      this.addLog(`The ${this.enemy.name} hits you for ${damage} damage.`, 'hit');
+      this.addLog(`The ${this.enemy.name} hits you for ${damage}.`, 'hit');
     }
     this.game.stats.hp = Math.max(0, this.game.stats.hp - damage);
+    await this.battle.enemyAttack(damage, wasGuarded);
     this.updateBars();
 
     if (this.game.stats.hp <= 0) {
-      this.defeat();
+      await this.defeat();
       return;
     }
     if (Math.random() < 0.25) {
@@ -277,10 +292,13 @@ export class CombatManager {
 
   // ---------- outcomes ----------
 
-  onEnemyDead(msg) {
+  async onEnemyDead(msg) {
     if (!this.active || msg.id !== this.enemy.id) return;
     this.over = true;
     this.refreshButtons();
+    this.addLog(`💀 The ${this.enemy.name} is slain!`, 'info');
+    await this.battle.enemyDeath();
+    if (this.pendingRewards) this.showVictory(this.pendingRewards);
   }
 
   onRewards(msg) {
@@ -292,32 +310,41 @@ export class CombatManager {
     if (msg.levelsGained === 0) {
       this.game.stats.hp = Math.min(localHp, msg.stats.max_hp);
     }
-    this.game.ui.toast(`+${msg.xp} XP`, 'good');
-    if (msg.gold > 0) this.game.ui.toast(`+${msg.gold} gold`, 'good');
-    if (msg.levelsGained > 0) {
-      this.game.ui.toast(`⭐ Level up! You are now level ${msg.stats.level}`, 'good');
-    }
-    if (msg.loot) {
-      this.game.ui.toast(`Loot: ${msg.loot}`, 'good');
-      this.game.refreshInventory().catch(() => {});
-    }
+    if (msg.loot) this.game.refreshInventory().catch(() => {});
     this.game.ui.updateHud();
-    if (this.active) {
-      this.over = true;
-      setTimeout(() => this.end(false), 900);
-    }
+
+    if (!this.active) return;
+    // If the death animation already played, show the banner now;
+    // otherwise onEnemyDead will pick these up when it finishes.
+    if (this.battle.enemyAlpha <= 0.05) this.showVictory(msg);
+    else this.pendingRewards = msg;
   }
 
-  defeat() {
+  showVictory(msg) {
+    this.pendingRewards = null;
+    const lines = [`+${msg.xp} XP`, msg.gold > 0 ? `+${msg.gold} gold` : null];
+    if (msg.levelsGained > 0) lines.push(`⭐ Level up! Now level ${msg.stats.level}`);
+    if (msg.loot) lines.push(`Loot: ${msg.loot}`);
+    this.battle.showBanner('VICTORY', lines.filter(Boolean), '#ffd76a');
+    if (msg.loot?.includes('Shard')) {
+      this.game.ui.toast(`💠 ${msg.loot} acquired!`, 'good');
+      this.game.story?.onShard(msg.loot);
+    }
+    setTimeout(() => this.end(false), 2300);
+  }
+
+  async defeat() {
     this.over = true;
     this.refreshButtons();
     this.addLog('☠️ You collapse…', 'hit');
+    await this.battle.playerDeath();
+    this.battle.showBanner('DEFEATED', ['You wake up back in the village…'], '#ff8a7a');
     const { stats, player, world } = this.game;
     stats.hp = Math.ceil(stats.max_hp / 2);
     player.teleport(world.spawn.x, world.spawn.y);
-    this.game.ui.toast('You were defeated and wake up back in the village.', 'bad');
+    world.snapCamera(world.spawn.x, world.spawn.y);
     this.game.ui.updateHud();
-    setTimeout(() => this.end(true), 900);
+    setTimeout(() => this.end(true), 1800);
   }
 
   async flee() {
@@ -326,9 +353,10 @@ export class CombatManager {
     this.refreshButtons();
     this.addLog('🏃 You turn and run!', 'info');
     // Fleeing gives the enemy one free swing.
-    this.enemyTurn();
+    await this.enemyTurn();
     if (this.active && !this.over) {
-      setTimeout(() => this.end(true), 400);
+      await this.battle.flee();
+      this.end(true);
     }
   }
 }

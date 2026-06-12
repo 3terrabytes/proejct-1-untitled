@@ -63,22 +63,35 @@ export class Net {
   // ---------- world state mirroring ----------
 
   handle(msg) {
-    const { remotePlayers, enemies } = this.game;
+    const { remotePlayers, enemies, merchants } = this.game;
     switch (msg.t) {
       case 'welcome': {
         remotePlayers.clear();
         enemies.clear();
+        merchants.clear();
         for (const p of msg.players) {
           remotePlayers.set(p.id, { ...p, px: p.x, py: p.y, walkPhase: 0, moving: false });
         }
         for (const e of msg.enemies) {
           enemies.set(e.id, { ...e, px: e.x, py: e.y, walkPhase: 0, moving: false });
         }
+        for (const m of msg.merchants || []) {
+          merchants.set(m.id, { ...m, px: m.x, py: m.y, walkPhase: 0, moving: false });
+        }
         // Server respawned us at the spawn point — snap local player to it.
         this.game.player.teleport(msg.you.x, msg.you.y);
         this.game.world.snapCamera(msg.you.x, msg.you.y);
         break;
       }
+      case 'merchants_move':
+        for (const move of msg.moves) {
+          const m = merchants.get(move.id);
+          if (m) { m.x = move.x; m.y = move.y; }
+        }
+        break;
+      case 'gate_blocked':
+        this.game.ui.gateBlocked(msg.biome, msg.minLevel);
+        break;
       case 'player_join':
         remotePlayers.set(msg.player.id, {
           ...msg.player, px: msg.player.x, py: msg.player.y, walkPhase: 0, moving: false
@@ -131,7 +144,7 @@ export class Net {
 
   // Per-frame interpolation of remote entities toward their server tiles.
   updateInterpolation(dt) {
-    for (const collection of [this.game.remotePlayers, this.game.enemies]) {
+    for (const collection of [this.game.remotePlayers, this.game.enemies, this.game.merchants]) {
       for (const entity of collection.values()) {
         const dx = entity.x - entity.px;
         const dy = entity.y - entity.py;

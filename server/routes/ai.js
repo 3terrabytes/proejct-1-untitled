@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import Groq from 'groq-sdk';
+import AiClient from 'groq-sdk';
 import { sql } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getNpcById } from '../lib/catalog.js';
@@ -7,9 +7,12 @@ import { getNpcById } from '../lib/catalog.js';
 const router = Router();
 router.use(requireAuth);
 
-const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
+// AI_API_KEY is preferred; GROQ_API_KEY still works for older .env files.
+const AI_API_KEY = process.env.AI_API_KEY || process.env.GROQ_API_KEY;
+const AI_MODEL = process.env.AI_MODEL || process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+const ai = AI_API_KEY ? new AiClient({ apiKey: AI_API_KEY }) : null;
 
-// Player message + NPC context → Groq → streamed reply (SSE over POST).
+// Player message + NPC context → AI → streamed reply (SSE over POST).
 router.post('/npc', async (req, res) => {
   const { npcId, playerMessage, playerStats, memoryContext } = req.body || {};
   const npc = getNpcById(npcId);
@@ -17,8 +20,8 @@ router.post('/npc', async (req, res) => {
   if (!playerMessage || typeof playerMessage !== 'string' || playerMessage.length > 500) {
     return res.status(400).json({ error: 'playerMessage required (max 500 chars)' });
   }
-  if (!groq) {
-    return res.status(503).json({ error: 'GROQ_API_KEY is not configured on the server' });
+  if (!ai) {
+    return res.status(503).json({ error: 'AI_API_KEY is not configured on the server' });
   }
 
   const level = Number(playerStats?.level) || 1;
@@ -43,8 +46,8 @@ ${merchantLine}
   res.flushHeaders?.();
 
   try {
-    const stream = await groq.chat.completions.create({
-      model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+    const stream = await ai.chat.completions.create({
+      model: AI_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: playerMessage }
@@ -59,7 +62,7 @@ ${merchantLine}
     }
     res.write('data: [DONE]\n\n');
   } catch (err) {
-    console.error('groq stream failed:', err);
+    console.error('AI stream failed:', err);
     res.write(`data: ${JSON.stringify({ error: 'The NPC stares at you blankly. (AI error)' })}\n\n`);
     res.write('data: [DONE]\n\n');
   }

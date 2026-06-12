@@ -3,46 +3,162 @@
     "id": "blacksmith_edric",
     "name": "Edric",
     "role": "blacksmith",
-    "location": "Ashveil Village",
-    "personality": "Gruff, honest, proud of his craft. Distrusts magic.",
-    "sells": [
-      "Iron Sword", "Steel Sword", "Leather Armour", "Chainmail",
-      "Iron Shield", "Steel Shield", "Leather Boots", "Iron Helm",
-      "Health Potion", "Greater Potion"
-    ],
+    "location": "Ashveil Village, in the Verdant Meadows",
+    "personality": "Gruff, honest, proud of his craft. Distrusts magic but respects anyone trying to seal the Rift. Knows the goblins in the caves guard a shard of it.",
+    "sells": ["Iron Sword", "Steel Sword", "Leather Armour", "Chainmail", "Iron Shield", "Steel Shield", "Leather Boots", "Iron Helm", "Health Potion", "Greater Potion"],
     "sprite": "blacksmith",
-    "x": 3,
-    "y": 5
+    "x": 7,
+    "y": 28
   },
   {
     "id": "elder_mara",
     "name": "Elder Mara",
     "role": "quest-giver",
-    "location": "Ashveil Village",
-    "personality": "Wise, cryptic, speaks in riddles. Knows dark secrets.",
-    "quests": ["lost_amulet", "goblin_caves"],
+    "location": "Ashveil Village, in the Verdant Meadows",
+    "personality": "Wise, cryptic, speaks in riddles. She knows the truth of the Rift: it tore the sky the night the four shards fell — one to the goblin caves, one to the Scorpion Den in the desert, one to Viper Hollow in the rainforest, one to the Ember Depths in the ashlands. She urges the hero to claim all four and carry them to the Rift Altar beyond the ashlands. The strongest beast of each den guards its shard.",
+    "quests": ["four_shards"],
     "sprite": "elder",
-    "x": 13,
-    "y": 5
+    "x": 15,
+    "y": 28
+  },
+  {
+    "id": "merchant_meadow",
+    "name": "Peddler Finn",
+    "role": "merchant",
+    "location": "the roads of the Verdant Meadows",
+    "personality": "Cheery wandering peddler with a heavy pack and heavier opinions. Gossips about goblins hoarding something shiny in the caves.",
+    "sells": ["Health Potion", "Greater Potion", "Rusty Dagger", "Leather Armour", "Leather Boots"],
+    "sprite": "merchant",
+    "wander": { "x": 24, "y": 37, "radius": 7 }
+  },
+  {
+    "id": "merchant_desert",
+    "name": "Caravan Zahra",
+    "role": "merchant",
+    "location": "the dunes of the Sunscorch Desert",
+    "personality": "Shrewd desert trader, speaks in proverbs about sand and patience. Sells the gear that survives the heat.",
+    "sells": ["Scimitar", "Hardened Leather", "Sunward Shield", "Greater Potion", "Health Potion"],
+    "sprite": "merchant",
+    "wander": { "x": 70, "y": 37, "radius": 7 }
+  },
+  {
+    "id": "merchant_rainforest",
+    "name": "Trader Moss",
+    "role": "merchant",
+    "location": "the green dark of the Mistveil Rainforest",
+    "personality": "Soft-spoken botanist-turned-trader who names every plant. Warns travellers about the vipers in the hollow.",
+    "sells": ["Vine Blade", "Panther Cloak", "Jungle Striders", "Greater Potion", "Elixir of Dawn"],
+    "sprite": "merchant",
+    "wander": { "x": 120, "y": 37, "radius": 7 }
+  },
+  {
+    "id": "merchant_ashlands",
+    "name": "Forgewalker Bren",
+    "role": "merchant",
+    "location": "the smouldering roads of the Ember Ashlands",
+    "personality": "Scarred, cheerful smith who forges in lava flows. Sells the only gear that matters this close to the Rift.",
+    "sells": ["Obsidian Edge", "Dragonscale", "Emberguard Helm", "Elixir of Dawn", "Greater Potion"],
+    "sprite": "merchant",
+    "wander": { "x": 170, "y": 37, "radius": 7 }
   },
   {
     "id": "goblin_grunt",
     "name": "Goblin Grunt",
     "role": "enemy",
+    "biome": "meadow",
     "location": "Goblin Caves",
     "personality": "Aggressive, stupid, loves gold. Yells threats in broken English.",
     "stats": { "hp": 40, "attack": 8, "defence": 3, "xpReward": 25, "goldDrop": [0, 15] },
+    "levelRange": [1, 3],
     "sprite": "goblin",
-    "spawnWeight": 0.8
+    "spawnWeight": 0.75
   },
   {
     "id": "goblin_brute",
     "name": "Goblin Brute",
     "role": "enemy",
+    "biome": "meadow",
     "location": "Goblin Caves",
-    "personality": "Hulking, slow-witted bully. Smashes first, grunts later. Proud of being the biggest goblin.",
+    "personality": "Hulking, slow-witted bully. Smashes first, grunts later. Secretly guards a glowing shard he doesn't understand.",
     "stats": { "hp": 70, "attack": 11, "defence": 5, "xpReward": 45, "goldDrop": [5, 25] },
+    "levelRange": [2, 4],
     "sprite": "goblin_brute",
-    "spawnWeight": 0.2
+    "spawnWeight": 0.25,
+    "shardDrop": "Meadow Shard"
+  },
+  {
+    "id": "sand_scorpion",
+    "name": "Sand Scorpion",
+    "role": "enemy",
+    "biome": "desert",
+    "location": "Scorpion Den",
+    "personality": "A chittering armoured scorpion the size of a dog. Communicates in menacing clicks and hisses (describe its threatening behaviour).",
+    "stats": { "hp": 65, "attack": 14, "defence": 7, "xpReward": 55, "goldDrop": [8, 30] },
+    "levelRange": [3, 6],
+    "sprite": "scorpion",
+    "spawnWeight": 0.7
+  },
+  {
+    "id": "bandit_raider",
+    "name": "Bandit Raider",
+    "role": "enemy",
+    "biome": "desert",
+    "location": "Scorpion Den",
+    "personality": "Sun-mad desert outlaw. Mocking, greedy, theatrical. Took the den from the scorpions and found something glowing in the sand.",
+    "stats": { "hp": 85, "attack": 16, "defence": 8, "xpReward": 75, "goldDrop": [15, 45] },
+    "levelRange": [4, 7],
+    "sprite": "bandit",
+    "spawnWeight": 0.3,
+    "shardDrop": "Dune Shard"
+  },
+  {
+    "id": "jungle_viper",
+    "name": "Jungle Viper",
+    "role": "enemy",
+    "biome": "rainforest",
+    "location": "Viper Hollow",
+    "personality": "A monstrous emerald serpent. Speaks in long hissing sentences, savouring every threat.",
+    "stats": { "hp": 95, "attack": 20, "defence": 9, "xpReward": 95, "goldDrop": [15, 50] },
+    "levelRange": [6, 9],
+    "sprite": "viper",
+    "spawnWeight": 0.7
+  },
+  {
+    "id": "shadow_panther",
+    "name": "Shadow Panther",
+    "role": "enemy",
+    "biome": "rainforest",
+    "location": "Viper Hollow",
+    "personality": "A sleek black panther wreathed in mist. Speaks rarely, in short cold sentences. Guards a glowing shard in its lair.",
+    "stats": { "hp": 130, "attack": 24, "defence": 11, "xpReward": 130, "goldDrop": [25, 70] },
+    "levelRange": [7, 10],
+    "sprite": "panther",
+    "spawnWeight": 0.3,
+    "shardDrop": "Jungle Shard"
+  },
+  {
+    "id": "ember_imp",
+    "name": "Ember Imp",
+    "role": "enemy",
+    "biome": "ashlands",
+    "location": "Ember Depths",
+    "personality": "A cackling imp of living flame. Giddy, cruel, pyromaniac. Serves the Flame Tyrant.",
+    "stats": { "hp": 150, "attack": 28, "defence": 12, "xpReward": 170, "goldDrop": [30, 90] },
+    "levelRange": [10, 13],
+    "sprite": "imp",
+    "spawnWeight": 0.78
+  },
+  {
+    "id": "flame_tyrant",
+    "name": "Flame Tyrant",
+    "role": "enemy",
+    "biome": "ashlands",
+    "location": "Ember Depths",
+    "personality": "The towering molten warlord who claimed the final shard when the Rift tore the sky. Imperious, furious, speaks in thunderous declarations.",
+    "stats": { "hp": 260, "attack": 34, "defence": 15, "xpReward": 300, "goldDrop": [80, 200] },
+    "levelRange": [12, 14],
+    "sprite": "tyrant",
+    "spawnWeight": 0.22,
+    "shardDrop": "Ember Shard"
   }
 ]

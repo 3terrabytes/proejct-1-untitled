@@ -1,47 +1,43 @@
-// Isometric world renderer: prerendered ground plane, depth-sorted raised
-// blocks (trees, houses, rocks) interleaved with entities, and a camera
-// that smoothly pans to follow the player.
-import { ISO, art, buildSprites, drawBlock, drawWater, noise } from './sprites.js';
+// Isometric world renderer with viewport culling: only the tiles on screen
+// are drawn each frame, so the map can be huge for free. Adds per-biome
+// ambient tints, animated water/lava/embers/gates and a smooth follow camera.
+import {
+  ISO, art, buildSprites, drawBlock, drawWater, drawLava,
+  drawEmberVent, drawGateTile, noise
+} from './sprites.js';
 
 export async function loadWorld() {
-  const res = await fetch('/assets/maps/town.json');
+  const res = await fetch('/assets/maps/world.json');
   if (!res.ok) throw new Error('Could not load map');
   buildSprites();
   return new World(await res.json());
 }
 
-// Logical tile (possibly fractional) → world-space pixel centre.
 export function isoX(x, y) { return (x - y) * ISO.HW; }
 export function isoY(x, y) { return (x + y) * ISO.HH; }
+
+const BIOME_TINTS = {
+  meadow: null,
+  desert: 'rgba(255,190,110,0.07)',
+  rainforest: 'rgba(30,90,70,0.12)',
+  ashlands: 'rgba(190,60,30,0.10)'
+};
+const CAVE_TINT = 'rgba(10,5,30,0.18)';
 
 export class World {
   constructor(mapData) {
     this.tileSize = mapData.tileSize;
     this.rows = mapData.rows;
-    this.height = mapData.rows.length;
-    this.width = mapData.rows[0].length;
+    this.height = mapData.height;
+    this.width = mapData.width;
     this.legend = mapData.legend;
     this.spawn = mapData.spawn;
-    this.zones = mapData.zones;
+    this.altar = mapData.altar;
+    this.biomes = mapData.biomes;
 
     this.camera = { x: isoX(this.spawn.x, this.spawn.y), y: isoY(this.spawn.x, this.spawn.y) };
-
-    this.waterTiles = [];
-    this.blocks = []; // raised tiles, depth-sorted with entities every frame
-    for (let y = 0; y < this.height; y++) {
-      for (let x = 0; x < this.width; x++) {
-        const tile = this.rows[y][x];
-        if (tile === 'w') this.waterTiles.push({ x, y });
-        if (tile === 't') this.blocks.push({ x, y, img: () => art.tree });
-        if (tile === 'h') this.blocks.push({ x, y, img: () => art.house });
-        if (tile === 'd') this.blocks.push({ x, y, img: () => art.houseDoor });
-        if (tile === 'k') {
-          this.blocks.push({ x, y, img: () => art.rock[noise(x, y) > 0.8 ? 1 : 0] });
-        }
-      }
-    }
-
-    this.#prerenderGround();
+    this.viewW = 960;
+    this.viewH = 640;
   }
 
   tileAt(tx, ty) {
@@ -55,50 +51,29 @@ export class World {
     return this.legend[tile]?.solid ?? true;
   }
 
+  biomeAt(tx) {
+    return this.biomes.find((b) => tx >= b.x1 && tx <= b.x2) || null;
+  }
+
+  inCave(tx, ty) {
+    const biome = this.biomeAt(tx);
+    if (!biome) return false;
+    const { x1, y1, x2, y2 } = biome.cave;
+    return tx >= x1 - 1 && tx <= x2 + 1 && ty >= y1 - 1 && ty <= y2 + 1;
+  }
+
   zoneAt(tx, ty) {
-    const zone = this.zones.find(
-      (z) => tx >= z.x1 && tx <= z.x2 && ty >= z.y1 && ty <= z.y2
-    );
-    return zone?.name || '';
+    const biome = this.biomeAt(tx);
+    if (!biome) return '';
+    return this.inCave(tx, ty) ? biome.cave.name : biome.name;
   }
 
-  // The whole static ground plane, rendered once into an offscreen canvas.
-  #prerenderGround() {
-    // World-space bounds of all tile diamonds.
-    this.groundOX = (this.height - 1) * ISO.HW + ISO.HW; // distance from left edge to world x=0
-    this.groundOY = ISO.HH;
-    const width = (this.width + this.height) * ISO.HW;
-    const height = (this.width + this.height) * ISO.HH + ISO.H;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-
-    for (let y = 0; y < this.height; y++) {
-      for (let x = 0; x < this.width; x++) {
-        const tile = this.rows[y][x];
-        const sx = isoX(x, y) + this.groundOX;
-        const sy = isoY(x, y) + this.groundOY;
-        let img = null;
-        switch (tile) {
-          case 'g': img = art.grass[Math.floor(noise(x, y) * art.grass.length)]; break;
-          case 'f': img = art.flowers; break;
-          case 'p': img = art.path[Math.floor(noise(x, y) * art.path.length)]; break;
-          case 't': img = art.grass[Math.floor(noise(x, y) * art.grass.length)]; break;
-          case 'h':
-          case 'd': img = art.path[0]; break;
-          case 'c':
-          case 'k': img = art.cave[Math.floor(noise(x, y) * art.cave.length)]; break;
-          case 'w': break; // water is animated per frame
-        }
-        if (img) ctx.drawImage(img, sx - ISO.HW, sy - ISO.HH);
-      }
-    }
-    this.groundCanvas = canvas;
+  // The gate you'd hit moving right into tile x, or null.
+  gateInto(tx) {
+    const biome = this.biomeAt(tx);
+    return biome?.gate || null;
   }
 
-  // Smoothly pan toward the target (tile-unit float coords), same zoom.
   updateCamera(targetTileX, targetTileY, dt) {
     const tx = isoX(targetTileX, targetTileY);
     const ty = isoY(targetTileX, targetTileY);
@@ -112,33 +87,108 @@ export class World {
     this.camera.y = isoY(tileX, tileY);
   }
 
+  groundSprite(tile, x, y) {
+    const v4 = Math.floor(noise(x, y) * 4);
+    const v3 = Math.floor(noise(x, y) * 3);
+    const biome = this.biomeAt(x)?.id || 'meadow';
+    switch (tile) {
+      case 'g': return art.grass[v4];
+      case 'f': return art.flowers;
+      case 'p': return art.path[v3];
+      case 's': return art.sand[v4];
+      case 'n': return art.dune;
+      case 'j': return art.jungle[v4];
+      case 'v': return art.fern;
+      case 'a': return art.ash[v4];
+      case 'c': return art.cave[biome][v3];
+      // ground under raised blocks
+      case 't': return art.grass[v4];
+      case 'J': return art.jungle[v4];
+      case 'x': return art.sand[v4];
+      case 'h':
+      case 'd': return art.path[0];
+      case 'k': return art.cave[biome][v3];
+      default: return null;
+    }
+  }
+
+  blockSprite(tile, x, y) {
+    const biome = this.biomeAt(x)?.id || 'meadow';
+    switch (tile) {
+      case 't': return art.tree;
+      case 'J': return art.jungleTree[noise(x, y) > 0.7 ? 1 : 0];
+      case 'x': return art.cactus;
+      case 'k': return art.rock[biome][noise(x, y) > 0.82 ? 1 : 0];
+      case 'h': return art.house;
+      case 'd': return art.houseDoor;
+      default: return null;
+    }
+  }
+
   /**
-   * Draw the world plus entities.
-   * Each renderable: { px, py (tile-unit floats), paint(ctx, sx, sy),
-   *                    label?: {text, color}, hpRatio? }
+   * Draw the visible slice of the world plus entities.
+   * Renderables: { px, py, paint(ctx, sx, sy), label?, labelHeight?, hpRatio? }
    */
   draw(ctx, time, renderables) {
-    const { width: cw, height: ch } = ctx.canvas;
-    ctx.fillStyle = '#0d0b14';
-    ctx.fillRect(0, 0, cw, ch);
+    const w = this.viewW;
+    const h = this.viewH;
+
+    // sky/void backdrop
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#171326');
+    bg.addColorStop(1, '#0b0912');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
 
     ctx.save();
-    ctx.translate(Math.round(cw / 2 - this.camera.x), Math.round(ch / 2 - this.camera.y));
+    ctx.translate(Math.round(w / 2 - this.camera.x), Math.round(h / 2 - this.camera.y));
 
-    // 1. static ground
-    ctx.drawImage(this.groundCanvas, -this.groundOX, -this.groundOY);
+    // visible tile range: invert iso projection at the view corners
+    const left = this.camera.x - w / 2;
+    const right = this.camera.x + w / 2;
+    const top = this.camera.y - h / 2;
+    const bottom = this.camera.y + h / 2;
+    const tileX = (wx, wy) => wx / ISO.HW / 2 + wy / ISO.HH / 2;
+    const tileY = (wx, wy) => wy / ISO.HH / 2 - wx / ISO.HW / 2;
+    const corners = [
+      [tileX(left, top), tileY(left, top)],
+      [tileX(right, top), tileY(right, top)],
+      [tileX(left, bottom), tileY(left, bottom)],
+      [tileX(right, bottom), tileY(right, bottom)]
+    ];
+    const minX = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[0]))) - 2);
+    const maxX = Math.min(this.width - 1, Math.ceil(Math.max(...corners.map((c) => c[0]))) + 2);
+    const minY = Math.max(0, Math.floor(Math.min(...corners.map((c) => c[1]))) - 2);
+    // extra rows at the bottom so tall blocks just below the view still show
+    const maxY = Math.min(this.height - 1, Math.ceil(Math.max(...corners.map((c) => c[1]))) + 6);
 
-    // 2. animated water
-    for (const { x, y } of this.waterTiles) {
-      drawWater(ctx, isoX(x, y), isoY(x, y), time, x, y);
+    // 1. ground pass (flat tiles, including animated ones)
+    const blocks = [];
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const tile = this.rows[y][x];
+        const sx = isoX(x, y);
+        const sy = isoY(x, y);
+        switch (tile) {
+          case 'w': drawWater(ctx, sx, sy, time, x, y); break;
+          case 'l': drawLava(ctx, sx, sy, time, x, y); break;
+          case 'e': drawEmberVent(ctx, sx, sy, time, x, y, art.ash[Math.floor(noise(x, y) * 4)]); break;
+          case 'G': drawGateTile(ctx, sx, sy, time, art.path[0]); break;
+          default: {
+            const img = this.groundSprite(tile, x, y);
+            if (img) ctx.drawImage(img, sx - ISO.HW, sy - ISO.HH);
+          }
+        }
+        const block = this.blockSprite(tile, x, y);
+        if (block) blocks.push({ depth: x + y, img: block, sx, sy });
+      }
     }
 
-    // 3. depth-sorted blocks + entities (painter's algorithm on x+y)
-    const queue = [];
-    for (const block of this.blocks) {
-      queue.push({ depth: block.x + block.y, block });
-    }
+    // 2. depth-sorted blocks + entities
+    const queue = blocks.map((b) => ({ depth: b.depth, block: b }));
     for (const r of renderables) {
+      // cull entities far outside the view
+      if (r.px < minX - 2 || r.px > maxX + 2 || r.py < minY - 2 || r.py > maxY + 2) continue;
       queue.push({ depth: r.px + r.py + 0.01, entity: r });
     }
     queue.sort((a, b) => a.depth - b.depth);
@@ -146,7 +196,7 @@ export class World {
     const labels = [];
     for (const item of queue) {
       if (item.block) {
-        drawBlock(ctx, item.block.img(), isoX(item.block.x, item.block.y), isoY(item.block.x, item.block.y));
+        drawBlock(ctx, item.block.img, item.block.sx, item.block.sy);
       } else {
         const r = item.entity;
         const sx = isoX(r.px, r.py);
@@ -156,17 +206,44 @@ export class World {
       }
     }
 
-    // 4. labels + mini HP bars on top so trees never hide who's who
+    // 3. labels + mini HP bars on top
     for (const { r, sx, sy } of labels) {
       if (r.hpRatio !== undefined && r.hpRatio < 1) {
-        drawMiniBar(ctx, sx, sy - r.labelHeight - 6, r.hpRatio);
+        drawMiniBar(ctx, sx, sy - (r.labelHeight ?? 44) - 6, r.hpRatio);
       }
       if (r.label) {
-        drawText(ctx, sx, sy - r.labelHeight, r.label.text, r.label.color);
+        drawText(ctx, sx, sy - (r.labelHeight ?? 44), r.label.text, r.label.color);
       }
     }
 
     ctx.restore();
+
+    // 4. ambience: biome tint + vignette
+    const playerTileX = tileX(this.camera.x, this.camera.y);
+    const playerTileY = tileY(this.camera.x, this.camera.y);
+    const biome = this.biomeAt(Math.round(playerTileX));
+    const tint = this.inCave(Math.round(playerTileX), Math.round(playerTileY))
+      ? CAVE_TINT
+      : BIOME_TINTS[biome?.id];
+    if (tint) {
+      ctx.fillStyle = tint;
+      ctx.fillRect(0, 0, w, h);
+    }
+    if (!this.vignette || this.vignette.width !== w) this.#makeVignette(w, h);
+    ctx.drawImage(this.vignette, 0, 0);
+  }
+
+  #makeVignette(w, h) {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const vctx = canvas.getContext('2d');
+    const grad = vctx.createRadialGradient(w / 2, h / 2, h * 0.45, w / 2, h / 2, h * 0.95);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(5,3,12,0.42)');
+    vctx.fillStyle = grad;
+    vctx.fillRect(0, 0, w, h);
+    this.vignette = canvas;
   }
 }
 
